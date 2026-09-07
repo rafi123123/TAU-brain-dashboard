@@ -7,6 +7,8 @@ services:
     ports:
       - "8000:8000"
     restart: unless-stopped
+    volumes:
+      - scan-data:/data/scan-data:rw
 
   grafana:
     # Infinity 4.x needs a Grafana that exposes react/jsx-runtime as a shared module, i.e. at least
@@ -15,17 +17,19 @@ services:
     depends_on:
       - api
     environment:
-      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource 4.0.0
+      GF_INSTALL_PLUGINS: "yesoreyeram-infinity-datasource 4.0.0,frser-sqlite-datasource"
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       # None of the apps Grafana preinstalls are used here, so skip installing and loading them.
-      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      # GF_PLUGINS_PREINSTALL_DISABLED: "true"
       GF_PLUGINS_DISABLE_PLUGINS: grafana-lokiexplore-app,grafana-exploretraces-app,grafana-pyroscope-app
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana-data:/var/lib/grafana
+      - scan-data:/data/scan-data:ro
     ports:
       - "3000:3000"
     restart: unless-stopped
 
 volumes:
   grafana-data:
+  scan-data:

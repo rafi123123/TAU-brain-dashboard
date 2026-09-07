@@ -7,7 +7,7 @@ import gspread
 import smbclient
 from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
-
+import sqlite3
 load_dotenv()
 
 NAS_HOST = os.getenv("NAS_HOST")
@@ -63,5 +63,7 @@ def audit() -> dict:
         "expected_count": len(expected),
         "present_count": len(present),
         "missing_count": len(missing),
-        "missing": missing,
+        # "missing": missing,
     }
+
+    
