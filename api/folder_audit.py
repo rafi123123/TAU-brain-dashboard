@@ -7,7 +7,6 @@ import gspread
 import smbclient
 from dotenv import load_dotenv
 from google.oauth2.service_account import Credentials
-import sqlite3
 load_dotenv()
 
 NAS_HOST = os.getenv("NAS_HOST")
