@@ -1,2 +1,2 @@
-* * * * * root /app/cron.sh
+*/15 * * * * root /app/cron.sh
 

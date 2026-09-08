@@ -1,0 +1,11 @@
+apiVersion: 1
+
+datasources:
+  - name: SQLite Data Source
+    type: frser-sqlite-datasource
+    uid: missing-folders
+    access: proxy
+    isDefault: true
+    jsonData:
+      path: /data/scan-data/presentation_data.db
+    editable: false

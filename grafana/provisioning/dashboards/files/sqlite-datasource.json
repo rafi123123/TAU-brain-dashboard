@@ -1,0 +1,250 @@
+{
+  "apiVersion": "dashboard.grafana.app/v2",
+  "kind": "Dashboard",
+  "metadata": {
+    "name": "adv6tgf",
+    "namespace": "default",
+    "uid": "aafa0b93-0cc8-4f0b-ba6f-18c7f2244c8d",
+    "resourceVersion": "1788792889689995",
+    "generation": 4,
+    "creationTimestamp": "2026-09-07T14:38:14Z",
+    "labels": {
+      "grafana.app/deprecatedInternalID": "2797480477356032"
+    },
+    "annotations": {
+      "grafana.app/createdBy": "access-policy:service",
+      "grafana.app/managedBy": "classic-file-provisioning",
+      "grafana.app/managerAllowsEdits": "true",
+      "grafana.app/managerId": "Default Dashboards",
+      "grafana.app/saved-from-ui": "Grafana v13.2.1 (56cd3e9288)",
+      "grafana.app/sourceChecksum": "186992c0b2b49fb1f40cefea18d1d3e7",
+      "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/files/sqlite-datasource.json",
+      "grafana.app/sourceTimestamp": "1788791530000",
+      "grafana.app/updatedBy": "user:efxjkupbjhwxse",
+      "grafana.app/updatedTimestamp": "2026-09-07T14:54:49Z"
+    }
+  },
+  "spec": {
+    "annotations": [
+      {
+        "kind": "AnnotationQuery",
+        "spec": {
+          "query": {
+            "kind": "DataQuery",
+            "group": "grafana",
+            "version": "v0",
+            "datasource": {
+              "name": "-- Grafana --"
+            },
+            "spec": {}
+          },
+          "enable": true,
+          "hide": true,
+          "iconColor": "rgba(0, 211, 255, 1)",
+          "name": "Annotations & Alerts",
+          "builtIn": true
+        }
+      }
+    ],
+    "cursorSync": "Off",
+    "description": "view current status of pipeline success rate",
+    "editable": true,
+    "elements": {
+      "panel-1": {
+        "kind": "Panel",
+        "spec": {
+          "id": 1,
+          "title": "New panel",
+          "description": "",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "frser-sqlite-datasource",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "missing-folders"
+                      },
+                      "spec": {
+                        "queryText": "SELECT\n  unixepoch(created_at) AS time,\n  expected_count,\n  present_count,\n  missing_count\nFROM scan_data\nORDER BY created_at ASC;",
+                        "queryType": "table",
+                        "rawQueryText": "SELECT\n  unixepoch(created_at) AS time,\n  expected_count,\n  present_count,\n  missing_count\nFROM scan_data\nORDER BY created_at ASC;",
+                        "timeColumns": [
+                          "time",
+                          "ts"
+                        ]
+                      }
+                    },
+                    "refId": "A",
+                    "hidden": false
+                  }
+                }
+              ],
+              "transformations": [],
+              "queryOptions": {}
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "timeseries",
+            "version": "13.2.1",
+            "spec": {
+              "options": {
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "right",
+                  "showLegend": true
+                },
+                "tooltip": {
+                  "hideZeros": false,
+                  "mode": "single",
+                  "sort": "none"
+                }
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": 0,
+                        "color": "green"
+                      },
+                      {
+                        "value": 80,
+                        "color": "red"
+                      }
+                    ]
+                  },
+                  "color": {
+                    "mode": "palette-classic"
+                  },
+                  "actions": [
+                    {
+                      "type": "fetch",
+                      "title": "test",
+                      "fetch": {
+                        "method": "POST",
+                        "url": "https://example.com",
+                        "body": "{}",
+                        "headers": [
+                          [
+                            "Content-Type",
+                            "application/json"
+                          ]
+                        ]
+                      },
+                      "confirmation": "bloop"
+                    }
+                  ],
+                  "custom": {
+                    "axisBorderShow": false,
+                    "axisCenteredZero": false,
+                    "axisColorMode": "text",
+                    "axisLabel": "",
+                    "axisPlacement": "left",
+                    "barAlignment": 0,
+                    "barWidthFactor": 0.6,
+                    "drawStyle": "line",
+                    "fillOpacity": 0,
+                    "gradientMode": "none",
+                    "hideFrom": {
+                      "legend": false,
+                      "tooltip": false,
+                      "viz": false
+                    },
+                    "insertNulls": false,
+                    "lineInterpolation": "linear",
+                    "lineWidth": 1,
+                    "pointSize": 5,
+                    "scaleDistribution": {
+                      "type": "linear"
+                    },
+                    "showPoints": "auto",
+                    "showValues": false,
+                    "spanNulls": false,
+                    "stacking": {
+                      "group": "A",
+                      "mode": "none"
+                    },
+                    "thresholdsStyle": {
+                      "mode": "off"
+                    }
+                  }
+                },
+                "overrides": []
+              }
+            }
+          },
+          "transparent": true
+        }
+      }
+    },
+    "layout": {
+      "kind": "GridLayout",
+      "spec": {
+        "items": [
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "x": 0,
+              "y": 0,
+              "width": 23,
+              "height": 14,
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-1"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "links": [
+      {
+        "title": "update",
+        "type": "link",
+        "icon": "external link",
+        "tooltip": "",
+        "url": "http://127.0.0.1:8000/update",
+        "tags": [],
+        "asDropdown": false,
+        "targetBlank": true,
+        "includeVars": false,
+        "keepTime": false
+      }
+    ],
+    "liveNow": false,
+    "preload": false,
+    "tags": [],
+    "timeSettings": {
+      "timezone": "browser",
+      "from": "now-6h",
+      "to": "now",
+      "autoRefresh": "",
+      "autoRefreshIntervals": [
+        "5s",
+        "10s",
+        "30s",
+        "1m",
+        "5m",
+        "15m",
+        "30m",
+        "1h",
+        "2h",
+        "1d"
+      ],
+      "hideTimepicker": false,
+      "fiscalYearStartMonth": 0
+    },
+    "title": "mising folders",
+    "variables": []
+  }
+}

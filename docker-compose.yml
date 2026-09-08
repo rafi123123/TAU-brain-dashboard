@@ -11,16 +11,12 @@ services:
       - scan-data:/data/scan-data:rw
 
   grafana:
-    # Infinity 4.x needs a Grafana that exposes react/jsx-runtime as a shared module, i.e. at least
-    # 11.6.11 / 12.2.5 per its grafanaDependency. Older versions fail to load the plugin with a 404.
-    image: grafana/grafana:12.4.9
+    image: grafana/grafana:13.2.1
     depends_on:
       - api
     environment:
-      GF_INSTALL_PLUGINS: "yesoreyeram-infinity-datasource 4.0.0,frser-sqlite-datasource"
+      GF_INSTALL_PLUGINS: "frser-sqlite-datasource"
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      # None of the apps Grafana preinstalls are used here, so skip installing and loading them.
-      # GF_PLUGINS_PREINSTALL_DISABLED: "true"
       GF_PLUGINS_DISABLE_PLUGINS: grafana-lokiexplore-app,grafana-exploretraces-app,grafana-pyroscope-app
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

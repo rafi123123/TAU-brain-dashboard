@@ -21,7 +21,7 @@ def initialize() -> Cursor:
     return cursor
 
 
-def main() -> None:
+def update_db() -> None:
     "function to run periodically to save details in sqlite file to be read by grafana"
 
     cursor = initialize()
@@ -36,10 +36,11 @@ def main() -> None:
     cursor.connection.close()
 
 
+
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "init":
         cursor = initialize()
         cursor.connection.commit()
         cursor.connection.close()
     else:
-        main()
+        update_db()

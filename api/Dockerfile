@@ -11,8 +11,10 @@ RUN chmod +x ./cron.sh
 COPY api/app-crontab /etc/cron.d/
 RUN chmod 0644 /etc/cron.d/app-crontab
 RUN touch /var/log/cron.log
-RUN apt-get update && apt-get install -y cron && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update -o Acquire::Languages=none -o Acquire::IndexTargets::deb::Contents-deb=false \
+    && apt-get install -y --no-install-recommends cron \
+    && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 8000
 CMD ["sh", "-c", "cron && python cron.py init && uvicorn main:app --host 0.0.0.0 --port 8000"]
