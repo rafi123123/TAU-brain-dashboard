@@ -17,6 +17,8 @@ services:
     environment:
       GF_INSTALL_PLUGINS: "frser-sqlite-datasource"
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_NAME: "TAU brain"
       GF_PLUGINS_DISABLE_PLUGINS: grafana-lokiexplore-app,grafana-exploretraces-app,grafana-pyroscope-app
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

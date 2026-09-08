@@ -4,12 +4,12 @@
   "metadata": {
     "name": "adv6tgf",
     "namespace": "default",
-    "uid": "aafa0b93-0cc8-4f0b-ba6f-18c7f2244c8d",
-    "resourceVersion": "1788792889689995",
-    "generation": 4,
-    "creationTimestamp": "2026-09-07T14:38:14Z",
+    "uid": "3b0ad518-65bf-4ff2-9877-5bb4f768abb4",
+    "resourceVersion": "1788877928340992",
+    "generation": 3,
+    "creationTimestamp": "2026-09-08T14:27:57Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "2797480477356032"
+      "grafana.app/deprecatedInternalID": "3157282020425728"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
@@ -17,11 +17,11 @@
       "grafana.app/managerAllowsEdits": "true",
       "grafana.app/managerId": "Default Dashboards",
       "grafana.app/saved-from-ui": "Grafana v13.2.1 (56cd3e9288)",
-      "grafana.app/sourceChecksum": "186992c0b2b49fb1f40cefea18d1d3e7",
+      "grafana.app/sourceChecksum": "92666e6cd81cb4566fd18cc607ac4543",
       "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/files/sqlite-datasource.json",
-      "grafana.app/sourceTimestamp": "1788791530000",
-      "grafana.app/updatedBy": "user:efxjkupbjhwxse",
-      "grafana.app/updatedTimestamp": "2026-09-07T14:54:49Z"
+      "grafana.app/sourceTimestamp": "1788877616000",
+      "grafana.app/updatedBy": "user:dfxn5sxao1xj4c",
+      "grafana.app/updatedTimestamp": "2026-09-08T14:32:08Z"
     }
   },
   "spec": {
@@ -185,6 +185,108 @@
           },
           "transparent": true
         }
+      },
+      "panel-2": {
+        "kind": "Panel",
+        "spec": {
+          "id": 2,
+          "title": "stats",
+          "description": "",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "frser-sqlite-datasource",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "missing-folders"
+                      },
+                      "spec": {
+                        "queryText": "SELECT  unixepoch(created_at) AS time,\n expected_count, present_count, missing_count FROM scan_data ORDER BY created_at ASC;",
+                        "queryType": "table",
+                        "rawQueryText": "SELECT  unixepoch(created_at) AS time,\n expected_count, present_count, missing_count FROM scan_data ORDER BY created_at ASC;",
+                        "timeColumns": [
+                          "time",
+                          "ts"
+                        ]
+                      }
+                    },
+                    "refId": "A",
+                    "hidden": false
+                  }
+                }
+              ],
+              "transformations": [],
+              "queryOptions": {}
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "gauge",
+            "version": "13.2.1",
+            "spec": {
+              "options": {
+                "barShape": "flat",
+                "barWidthFactor": 0.43,
+                "effects": {
+                  "barGlow": false,
+                  "centerGlow": false,
+                  "gradient": true
+                },
+                "endpointMarker": "point",
+                "minVizHeight": 75,
+                "minVizWidth": 75,
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": false
+                },
+                "segmentCount": 1,
+                "segmentSpacing": 0.3,
+                "shape": "gauge",
+                "showThresholdLabels": false,
+                "showThresholdMarkers": true,
+                "sizing": "auto",
+                "sparkline": true,
+                "textMode": "auto"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "thresholds": {
+                    "mode": "percentage",
+                    "steps": [
+                      {
+                        "value": 0,
+                        "color": "green"
+                      },
+                      {
+                        "value": 60,
+                        "color": "#EAB839"
+                      },
+                      {
+                        "value": 80,
+                        "color": "red"
+                      }
+                    ]
+                  },
+                  "color": {
+                    "mode": "thresholds"
+                  }
+                },
+                "overrides": []
+              }
+            }
+          }
+        }
       }
     },
     "layout": {
@@ -196,6 +298,19 @@
             "spec": {
               "x": 0,
               "y": 0,
+              "width": 24,
+              "height": 8,
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-2"
+              }
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "x": 0,
+              "y": 8,
               "width": 23,
               "height": 14,
               "element": {

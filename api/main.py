@@ -52,13 +52,30 @@ async def update_db_endpoint(background_tasks: BackgroundTasks):
             body { font-family: system-ui, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
             .card { background: #1e293b; padding: 2rem 3rem; border-radius: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); text-align: center; border: 1px solid #334155; }
             .dot { height: 12px; width: 12px; background-color: #38bdf8; border-radius: 50%; display: inline-block; animation: pulse 1.5s infinite; margin-right: 8px; }
+            .subtext { margin-top: 1rem; font-size: 0.875rem; color: #94a3b8; }
             @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } }
         </style>
     </head>
     <body>
         <div class="card">
             <h2><span class="dot"></span>Currently updating the DB...</h2>
+            <p class="subtext">This window will close in <span id="timer">5</span> seconds.</p>
         </div>
+
+        <script>
+            let seconds = 5;
+            const timerElement = document.getElementById('timer');
+
+            const countdown = setInterval(() => {
+                seconds--;
+                if (timerElement) timerElement.textContent = seconds;
+
+                if (seconds <= 0) {
+                    clearInterval(countdown);
+                    window.close();
+                }
+            }, 1000);
+        </script>
     </body>
     </html>
     """
