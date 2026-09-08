@@ -1,13 +1,13 @@
-import base64
-import json
+from logger_config import setup_logging
+import pandas as pd
 import os
 import re
-
-import gspread
 import smbclient
 from dotenv import load_dotenv
-from google.oauth2.service_account import Credentials
+
 load_dotenv()
+
+logger = setup_logging(__name__)
 
 NAS_HOST = os.getenv("NAS_HOST")
 NAS_USERNAME = os.getenv("NAS_USERNAME")
@@ -17,27 +17,16 @@ NAS_PATH = os.getenv("NAS_PATH", "")
 
 SHEET_URL = os.getenv(
     "SHEET_URL",
-    "https://docs.google.com/spreadsheets/d/1YvhfZ8k3xafsN1ijtOl1uESG4w48-2jVnnWQM-s_OQM/edit",
+    "https://docs.google.com/spreadsheets/d/1YvhfZ8k3xafsN1ijtOl1uESG4w48-2jVnnWQM-s_OQM/export?format=csv",
 )
-SHEET_COLUMN = int(os.getenv("SHEET_COLUMN", "1"))
-
-# Scope explicitly restricted to read-only access
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
-
 # Only scan identifiers count on either side; anything else (headers, notes, stray files) is ignored.
 SCAN_ID = re.compile(r"\d{8}_\d{4}")
-
-
-def load_credentials() -> Credentials:
-    """Decodes the base64 service account key held in GOOGLE_CREDS, so the key travels as an
-    environment variable instead of a file that has to be mounted into the container."""
-    creds_json = base64.b64decode(os.environ["GOOGLE_CREDS"]).decode()
-    return Credentials.from_service_account_info(json.loads(creds_json), scopes=SCOPES)
 
 
 def list_present_folders() -> set[str]:
     """Registers an SMB session and returns the scan-identifier directories directly under the
     audited share path, ignoring plain files and any other naming."""
+    logger.info("getting smb folders")
     smbclient.register_session(NAS_HOST, username=NAS_USERNAME, password=NAS_PASSWORD)
     root = f"\\\\{NAS_HOST}\\{NAS_SHARE}"
     if NAS_PATH:
@@ -48,9 +37,15 @@ def list_present_folders() -> set[str]:
 def list_expected_folders() -> list[str]:
     """Reads the configured column of the sheet's first tab and returns its scan identifiers in order,
     without duplicates."""
-    worksheet = gspread.authorize(load_credentials()).open_by_url(SHEET_URL).sheet1
-    values = (v.strip() for v in worksheet.col_values(SHEET_COLUMN))
-    return list(dict.fromkeys(v for v in values if SCAN_ID.fullmatch(v)))
+    logger.info("getting excel folder names")
+    col_index = 0
+    series = pd.read_csv(SHEET_URL, usecols=[col_index], header=None, dtype=str).iloc[:, 0]
+
+    # Process values: strip whitespace, filter by regex, and preserve order while deduplicating
+    values = (str(v).strip() for v in series.dropna())
+    ret_val = list(dict.fromkeys(v for v in values if SCAN_ID.fullmatch(v)))
+    print(ret_val[:4])
+    return ret_val
 
 
 def audit() -> dict:

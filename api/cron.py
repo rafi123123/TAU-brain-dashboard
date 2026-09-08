@@ -1,14 +1,15 @@
 import sqlite3
 from sqlite3 import Cursor
 from folder_audit import audit
-import sys
+from logger_config import setup_logging
 
+logger = setup_logging(__name__)
 
 def initialize() -> Cursor:
+    logger.info("initializing DB")
     connection = sqlite3.connect("/data/scan-data/presentation_data.db")
     cursor: Cursor = connection.cursor()
 
-    # 3. Create a table
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS scan_data (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -20,10 +21,14 @@ def initialize() -> Cursor:
     """)
     return cursor
 
+def init_and_commit():
+    cursor = initialize()
+    cursor.connection.commit()
+    cursor.connection.close()
 
 def update_db() -> None:
     "function to run periodically to save details in sqlite file to be read by grafana"
-
+    logger.info("updating DB")
     cursor = initialize()
     audit_data = audit()
     
@@ -34,13 +39,3 @@ def update_db() -> None:
     )
     cursor.connection.commit()
     cursor.connection.close()
-
-
-
-if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "init":
-        cursor = initialize()
-        cursor.connection.commit()
-        cursor.connection.close()
-    else:
-        update_db()
