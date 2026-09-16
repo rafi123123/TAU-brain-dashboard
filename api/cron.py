@@ -1,41 +1,328 @@
 import sqlite3
-from sqlite3 import Cursor
-from folder_audit import audit
-from logger_config import setup_logging
+from logger_config import get_logger
+import os
+import sql
+from datetime import datetime
+import pandas as pd
+import re
+import smbclient
+from smbclient import SMBDirEntry
+from smbprotocol.exceptions import SMBException
+from pathlib import Path
+from typing import Generator
+from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor
+import time
+from typing import Callable
+import random
+load_dotenv()
+logger = get_logger(__name__)
 
-logger = setup_logging(__name__)
+NAS_HOST = os.getenv("NAS_HOST")
+NAS_USERNAME = os.getenv("NAS_USERNAME")
+NAS_PASSWORD = os.getenv("NAS_PASSWORD")
+SHEET_URL = os.getenv(
+    "SHEET_URL",
+    "https://docs.google.com/spreadsheets/d/1YvhfZ8k3xafsN1ijtOl1uESG4w48-2jVnnWQM-s_OQM/export?format=csv",
+)
 
-def initialize() -> Cursor:
-    logger.info("initializing DB")
-    connection = sqlite3.connect("/data/scan-data/presentation_data.db")
-    cursor: Cursor = connection.cursor()
+TIMESTAMP_RE = re.compile(r"\d{8}_\d{4}") 
+SUB_ID_RE = re.compile(r"sub-(S\d{6})")  
+SES_TIMESTAMP_RE = re.compile(r"ses-(\d{12})")  
+NAS_PATH = Path(f"//{NAS_HOST}/")
+DB_LOC = os.getenv("DB_LOCATION", "/data/scan-data/presentation_data.db")
+SMB_WORKERS = int(os.getenv("SMB_WORKERS", 120))
+MAX_SMB_QUERY_ATTEMPTS = int(os.getenv("SMB_QUERY_ATTEMPTS", 50))
+MAX_SMB_SLEEP = int(os.getenv("SMB_MAX_SLEEP", 20))
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS scan_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            expected_count INTEGER NOT NULL,
-            present_count INTEGER  NOT NULL,
-            missing_count INTEGER  NOT NULL,
-            created_at TEXT DEFAULT (datetime('now'))
-        )
-    """)
-    return cursor
+
+def _first_group_or_none(regex: re.Pattern[str], string: str) -> str | None:
+    try:
+        return regex.search(string).group(1)
+    except:
+        return None
+    
+
+def log_exceptions(func):
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logger.exception(f"--- Exception in thread task '{func.__name__}' with args: {args} {kwargs}---")
+    return wrapper
+
+def _exponential_decay(
+        func: Callable, 
+        exc: Exception,
+        max_attempts: int, 
+        max_sleep: int, 
+        *args, 
+        **kwargs
+    ):
+    last_exc = None
+    for i in range(max_attempts):
+        try:
+            return func(*args, **kwargs)
+        except exc as e:
+            last_exc = e
+            sleep_time = min(max_sleep, 2**i)
+            logger.warning(
+                f"exception raised while trying to run {func} "
+                f"attempt number: {i} "
+                f"args: {args} {kwargs} "
+                f"sleeping for {sleep_time} seconds"
+            )
+            time.sleep(sleep_time + 3*random.random())
+    else:
+        raise last_exc
+
+def default_trying_smb(func: Callable, exc: Exception, *args, **kwargs):
+    return _exponential_decay(
+        func, exc, MAX_SMB_QUERY_ATTEMPTS, MAX_SMB_SLEEP, *args, **kwargs
+    )
+
+def _get_smb_dirs(path: str, search: str= "*") -> list[SMBDirEntry]:
+    return [ses for ses in smbclient.scandir(path, search) if ses.is_dir()]
+
+def get_smb_dirs(path: str, search: str= "*") -> list[SMBDirEntry]:
+    return default_trying_smb(_get_smb_dirs, SMBException ,path, search)
+
+def _format_datetime_raw(date_time_str: str) -> datetime:
+    return datetime.strptime(date_time_str,"%Y%m%d_%H%M").strftime("%Y-%m-%d %H:%M:%S")
+
+def _format_datetime_ses(date_time_str: str) -> datetime:
+    return datetime.strptime(date_time_str,"%Y%m%d%H%M").strftime("%Y-%m-%d %H:%M:%S")
+
+@log_exceptions
+def _insert_sub_ses_file_structure(
+        subject_dir: SMBDirEntry, 
+        name: sql.Sources
+    ) -> str:
+    logger.info(f"enumerating {subject_dir.name}")
+    sessions = get_smb_dirs(subject_dir.path, "ses-*")
+    with sqlite3.connect(DB_LOC, timeout=20) as conn:
+        try:
+            cursor = conn.cursor()
+            sql.insert_scan_many(
+                cursor, 
+                [
+                    (
+                        _format_datetime_ses(ses.name[4:16]),
+                        name,
+                        None, # FIXME need to check how to find what status the session as actually at
+                        ses.path,
+                        subject_dir.name[4:16]
+                    ) for ses in sessions 
+                ]
+            )
+        except Exception as e:
+            for ses in sessions:
+                logger.info(f'~~~~~~~~~~~ {ses.name} {subject_dir.path}')
+            raise e
+
+
+
+@log_exceptions
+def insert_sub_ses(
+        *,
+        executer: ThreadPoolExecutor, 
+        path: str,
+        name: sql.Sources | str
+    ) -> None:
+    logger.info(f"getting {path}, subject directories")
+    subject_dirs = get_smb_dirs(path, "sub-*")
+    logger.info(f"got {len(subject_dirs)} subject directories")
+    all_futures = []
+    for directory in subject_dirs:
+        all_futures.append(executer.submit(
+            _insert_sub_ses_file_structure,
+            subject_dir=directory,
+            name=name, 
+        ))
+    for future in all_futures:
+        future.result()
+
+@log_exceptions
+def raw_data_generator() -> Generator[sql.ScanData, None, None]:
+    logger.info("getting raw data")
+    for directory in smbclient.scandir(NAS_PATH/"Raw_Data"):
+        if directory.is_dir() and TIMESTAMP_RE.fullmatch(directory.name):
+            yield sql.ScanData(
+                scan_time=_format_datetime_raw(directory.name),
+                source=sql.Sources.RAW_DATA,
+                full_path=directory.path
+            )
+
+
+def list_google_sheets() -> Generator[sql.ScanData, None, None]:
+    logger.info("getting excel folder names")
+    col_index = 0
+    series = pd.read_csv(SHEET_URL, usecols=[col_index], header=None, dtype=str).iloc[:, 0]
+    return [
+        (
+            _format_datetime_raw(scan_id),
+            sql.Sources.GOOGLE_SHEETS.value,
+           None,
+           None,
+           None
+        ) 
+        for scan_id in series.dropna() if TIMESTAMP_RE.fullmatch(scan_id)
+    ]
+
+def insert_raw_data()-> list:
+    logger.info("getting raw data")
+    all_raw_scans = [
+        (
+           _format_datetime_raw(scan_dir.name),
+           sql.Sources.RAW_DATA.value,
+           None,
+           scan_dir.path,
+           None
+        ) 
+        for scan_dir in get_smb_dirs(NAS_PATH/"Raw_Data") 
+        if TIMESTAMP_RE.fullmatch(scan_dir.name)
+    ]
+    logger.info(f"raw data entries: {len(all_raw_scans)}")
+    return all_raw_scans
+
+def list_freesurfer():
+    logger.info("getting freesurfer data")
+    all_entries = []
+    for directory in smbclient.scandir(NAS_PATH/"Processed_Data"/"derivatives"/"freesurfer"):
+        if directory.is_dir():
+            name = directory.name
+            sub_id = _first_group_or_none(SUB_ID_RE, name)
+            if not sub_id:
+                continue
+            ses_time_raw = _first_group_or_none(SES_TIMESTAMP_RE, name)
+            if not ses_time_raw:
+                ses_time = None
+            else:
+                ses_time = _format_datetime_ses(ses_time_raw)
+            long = '.long.' in name
+            if long and ses_time:
+                status = sql.Status.FREESURFER_SUBJECT_SESSION_LONG_DIR.value
+            elif ses_time:
+                status = sql.Status.FREESURFER_SUBJECT_SESSION_DIR.value
+            else:
+                status = sql.Status.FREESURFER_SUBJECT_ONLY_DIR.value
+            all_entries.append(
+                (
+                    ses_time, 
+                    sql.Sources.FREESURFER.value, 
+                    status, 
+                    directory.path,
+                    sub_id
+                )
+            )
+    return all_entries
+
+
+
 
 def init_and_commit():
-    cursor = initialize()
-    cursor.connection.commit()
-    cursor.connection.close()
+    logger.info("initializing DB")
+    with sqlite3.connect(DB_LOC) as conn:
+        cursor = conn.cursor()
+        sql.create_scan_history_table(cursor)
+        
+
 
 def update_db() -> None:
     "function to run periodically to save details in sqlite file to be read by grafana"
-    logger.info("updating DB")
-    cursor = initialize()
-    audit_data = audit()
-    
-    cursor.execute(
-        "INSERT INTO scan_data "
-        "(expected_count, present_count, missing_count) VALUES (?, ?, ?)",
-        (audit_data["expected_count"], audit_data["present_count"], audit_data["missing_count"])
-    )
-    cursor.connection.commit()
-    cursor.connection.close()
+    logger.info("initiating DB update")
+
+    logger.info("connecting to smb")
+    smbclient.register_session(NAS_HOST, username=NAS_USERNAME, password=NAS_PASSWORD)
+
+    with sqlite3.connect(DB_LOC, timeout=20) as conn:
+        cursor = conn.cursor()
+        logger.info("creating sqlite table")
+        sql.create_scan_history_table(cursor)
+
+    logger.info("starting smb scraping")
+    with ThreadPoolExecutor(max_workers=SMB_WORKERS) as executer:
+        all_futures = []
+        all_futures.append(
+            executer.submit(
+                insert_sub_ses, 
+                executer=executer, 
+                path=NAS_PATH/"Processed_Data"/"derivatives"/"qsirecon",
+                name=sql.Sources.QSIRECON.value
+            )
+        )
+        all_futures.append(
+            executer.submit(
+                insert_sub_ses, 
+                executer=executer, 
+                path=NAS_PATH/"Processed_Data"/"derivatives"/"qsiprep",
+                name=sql.Sources.QSIPREP.value
+            )
+        )
+        all_futures.append(
+            executer.submit(
+                insert_sub_ses, 
+                executer=executer, 
+                path=NAS_PATH/"Processed_Data"/"derivatives"/"tabular",
+                name=sql.Sources.TABULAR.value
+            )
+        )
+
+        # trying to prevent sqlite db locked error and and smb threading errors
+        for future in all_futures:
+            future.result()
+        all_futures = []
+
+        all_futures.append(
+            executer.submit(
+                insert_sub_ses, 
+                executer=executer, 
+                path=NAS_PATH/"Bids",
+                name=sql.Sources.BIDS.value
+            )
+        )
+        all_futures.append(
+            executer.submit(
+                insert_sub_ses, 
+                executer=executer, 
+                path=NAS_PATH/"Processed_Data"/"derivatives"/"CAT",
+                name=sql.Sources.CAT.value
+            )
+        )
+        all_futures.append(
+            executer.submit(
+                insert_sub_ses, 
+                executer=executer, 
+                path=NAS_PATH/"Processed_Data"/"derivatives"/"tabular_cat12",
+                name=sql.Sources.TABULAR_CAT12.value
+            )
+        )
+
+
+        for future in all_futures:
+            future.result()
+        all_futures = []
+
+        with sqlite3.connect(DB_LOC, timeout=20) as conn:
+            cursor = conn.cursor()
+            sql.insert_scan_many(
+                cursor, 
+                insert_raw_data()
+            )
+            
+            sql.insert_scan_many(
+                cursor, 
+                list_google_sheets()
+            )
+
+            sql.insert_scan_many(
+                cursor,
+                list_freesurfer()
+            )
+            
+    logger.info("finished update")
+            
+
+
+if __name__ == "__main__":
+    update_db()

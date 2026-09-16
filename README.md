@@ -8,9 +8,7 @@ on an SMB share. A FastAPI service does the comparison; the Grafana Infinity plu
 
 Every request re-reads both sources — nothing is cached, so a panel always shows the current state.
 
-**SMB share** — `smbclient` opens a session against `NAS_HOST` with `NAS_USERNAME` / `NAS_PASSWORD`,
-then lists `\\NAS_HOST\NAS_SHARE` (plus `NAS_PATH`, if set). Only directories are kept; files are not
-folders and never count as present.
+**SMB share** — `smbclient` opens a session against `NAS_HOST` with `NAS_USERNAME` / `NAS_PASSWORD`
 
 code example:
 ```python

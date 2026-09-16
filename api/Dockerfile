@@ -4,7 +4,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY .env api/*.py ./
+COPY api/.env api/*.py ./
 
 EXPOSE 8000
 ENV PYTHONUNBUFFERED=1

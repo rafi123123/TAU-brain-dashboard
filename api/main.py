@@ -1,11 +1,11 @@
-from logger_config import setup_logging
+from logger_config import get_logger
 from fastapi import FastAPI, BackgroundTasks
 from cron import update_db, init_and_commit
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-logger = setup_logging(__name__)
+logger = get_logger(__name__)
 
 scheduler = AsyncIOScheduler()
 
