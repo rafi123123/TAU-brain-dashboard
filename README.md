@@ -56,3 +56,13 @@ are then deduplicated, and every one with no folder of the same name is reported
 | `/missing-folders`      | counts (`expected_count`, `present_count`, `missing_count`), `missing`, `checked_at`  |
 | `/missing-folders/list` | one row per missing folder, for the table panel                                      |
 | `/health`               | liveness check                                                                       |
+
+
+## use db from host system in docker volume
+
+```bash
+docker run --rm \
+  -v ./test.db:/tmp \
+  -v scan-data:/data/scan-data \
+  alpine cp /tmp/test.db /data/scan-data/presentation_data.db
+```

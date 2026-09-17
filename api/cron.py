@@ -9,31 +9,31 @@ import smbclient
 from smbclient import SMBDirEntry
 from smbprotocol.exceptions import SMBException
 from pathlib import Path
-from typing import Generator
 from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor
 import time
 from typing import Callable
 import random
+
 load_dotenv()
 logger = get_logger(__name__)
 
 NAS_HOST = os.getenv("NAS_HOST")
-NAS_USERNAME = os.getenv("NAS_USERNAME")
-NAS_PASSWORD = os.getenv("NAS_PASSWORD")
+NAS_USERNAME = os.environ["NAS_USERNAME"]
+NAS_PASSWORD = os.environ["NAS_PASSWORD"]
 SHEET_URL = os.getenv(
     "SHEET_URL",
     "https://docs.google.com/spreadsheets/d/1YvhfZ8k3xafsN1ijtOl1uESG4w48-2jVnnWQM-s_OQM/export?format=csv",
 )
+DB_LOC = os.getenv("DB_LOCATION", "/data/scan-data/presentation_data.db")
+SMB_WORKERS = int(os.getenv("SMB_WORKERS", 120))
+MAX_SMB_QUERY_ATTEMPTS = int(os.getenv("SMB_QUERY_ATTEMPTS", 50))
+MAX_SMB_SLEEP = int(os.getenv("SMB_MAX_SLEEP", 20))
 
 TIMESTAMP_RE = re.compile(r"\d{8}_\d{4}") 
 SUB_ID_RE = re.compile(r"sub-(S\d{6})")  
 SES_TIMESTAMP_RE = re.compile(r"ses-(\d{12})")  
 NAS_PATH = Path(f"//{NAS_HOST}/")
-DB_LOC = os.getenv("DB_LOCATION", "/data/scan-data/presentation_data.db")
-SMB_WORKERS = int(os.getenv("SMB_WORKERS", 120))
-MAX_SMB_QUERY_ATTEMPTS = int(os.getenv("SMB_QUERY_ATTEMPTS", 50))
-MAX_SMB_SLEEP = int(os.getenv("SMB_MAX_SLEEP", 20))
 
 
 def _first_group_or_none(regex: re.Pattern[str], string: str) -> str | None:
@@ -96,7 +96,7 @@ def _format_datetime_ses(date_time_str: str) -> datetime:
 @log_exceptions
 def _insert_sub_ses_file_structure(
         subject_dir: SMBDirEntry, 
-        name: sql.Sources
+        name: sql.Source
     ) -> str:
     logger.info(f"enumerating {subject_dir.name}")
     sessions = get_smb_dirs(subject_dir.path, "ses-*")
@@ -127,7 +127,7 @@ def insert_sub_ses(
         *,
         executer: ThreadPoolExecutor, 
         path: str,
-        name: sql.Sources | str
+        name: sql.Source | str
     ) -> None:
     logger.info(f"getting {path}, subject directories")
     subject_dirs = get_smb_dirs(path, "sub-*")
@@ -142,26 +142,15 @@ def insert_sub_ses(
     for future in all_futures:
         future.result()
 
-@log_exceptions
-def raw_data_generator() -> Generator[sql.ScanData, None, None]:
-    logger.info("getting raw data")
-    for directory in smbclient.scandir(NAS_PATH/"Raw_Data"):
-        if directory.is_dir() and TIMESTAMP_RE.fullmatch(directory.name):
-            yield sql.ScanData(
-                scan_time=_format_datetime_raw(directory.name),
-                source=sql.Sources.RAW_DATA,
-                full_path=directory.path
-            )
 
-
-def list_google_sheets() -> Generator[sql.ScanData, None, None]:
+def list_google_sheets() -> list[tuple]:
     logger.info("getting excel folder names")
     col_index = 0
     series = pd.read_csv(SHEET_URL, usecols=[col_index], header=None, dtype=str).iloc[:, 0]
     return [
         (
             _format_datetime_raw(scan_id),
-            sql.Sources.GOOGLE_SHEETS.value,
+            sql.Source.GOOGLE_SHEETS.value,
            None,
            None,
            None
@@ -174,7 +163,7 @@ def insert_raw_data()-> list:
     all_raw_scans = [
         (
            _format_datetime_raw(scan_dir.name),
-           sql.Sources.RAW_DATA.value,
+           sql.Source.RAW_DATA.value,
            None,
            scan_dir.path,
            None
@@ -209,7 +198,7 @@ def list_freesurfer():
             all_entries.append(
                 (
                     ses_time, 
-                    sql.Sources.FREESURFER.value, 
+                    sql.Source.FREESURFER.value, 
                     status, 
                     directory.path,
                     sub_id
@@ -248,7 +237,7 @@ def update_db() -> None:
                 insert_sub_ses, 
                 executer=executer, 
                 path=NAS_PATH/"Processed_Data"/"derivatives"/"qsirecon",
-                name=sql.Sources.QSIRECON.value
+                name=sql.Source.QSIRECON.value
             )
         )
         all_futures.append(
@@ -256,7 +245,7 @@ def update_db() -> None:
                 insert_sub_ses, 
                 executer=executer, 
                 path=NAS_PATH/"Processed_Data"/"derivatives"/"qsiprep",
-                name=sql.Sources.QSIPREP.value
+                name=sql.Source.QSIPREP.value
             )
         )
         all_futures.append(
@@ -264,7 +253,7 @@ def update_db() -> None:
                 insert_sub_ses, 
                 executer=executer, 
                 path=NAS_PATH/"Processed_Data"/"derivatives"/"tabular",
-                name=sql.Sources.TABULAR.value
+                name=sql.Source.TABULAR.value
             )
         )
 
@@ -278,7 +267,7 @@ def update_db() -> None:
                 insert_sub_ses, 
                 executer=executer, 
                 path=NAS_PATH/"Bids",
-                name=sql.Sources.BIDS.value
+                name=sql.Source.BIDS.value
             )
         )
         all_futures.append(
@@ -286,7 +275,7 @@ def update_db() -> None:
                 insert_sub_ses, 
                 executer=executer, 
                 path=NAS_PATH/"Processed_Data"/"derivatives"/"CAT",
-                name=sql.Sources.CAT.value
+                name=sql.Source.CAT.value
             )
         )
         all_futures.append(
@@ -294,7 +283,7 @@ def update_db() -> None:
                 insert_sub_ses, 
                 executer=executer, 
                 path=NAS_PATH/"Processed_Data"/"derivatives"/"tabular_cat12",
-                name=sql.Sources.TABULAR_CAT12.value
+                name=sql.Source.TABULAR_CAT12.value
             )
         )
 

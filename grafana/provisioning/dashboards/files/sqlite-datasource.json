@@ -4,12 +4,12 @@
   "metadata": {
     "name": "adv6tgf",
     "namespace": "default",
-    "uid": "3b0ad518-65bf-4ff2-9877-5bb4f768abb4",
-    "resourceVersion": "1788877928340992",
-    "generation": 3,
-    "creationTimestamp": "2026-09-08T14:27:57Z",
+    "uid": "52092332-1d32-4742-b36d-595bb3f8b429",
+    "resourceVersion": "1789652629586005",
+    "generation": 10,
+    "creationTimestamp": "2026-09-08T14:38:37Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "3157282020425728"
+      "grafana.app/deprecatedInternalID": "3159967218016256"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
@@ -17,11 +17,11 @@
       "grafana.app/managerAllowsEdits": "true",
       "grafana.app/managerId": "Default Dashboards",
       "grafana.app/saved-from-ui": "Grafana v13.2.1 (56cd3e9288)",
-      "grafana.app/sourceChecksum": "92666e6cd81cb4566fd18cc607ac4543",
-      "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/files/sqlite-datasource.json",
-      "grafana.app/sourceTimestamp": "1788877616000",
-      "grafana.app/updatedBy": "user:dfxn5sxao1xj4c",
-      "grafana.app/updatedTimestamp": "2026-09-08T14:32:08Z"
+      "grafana.app/sourceChecksum": "0b0ed6c2c7e074b03b2975df2b7f84d7",
+      "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/files/new_sqlite-datasource.json",
+      "grafana.app/sourceTimestamp": "1789651965000",
+      "grafana.app/updatedBy": "user:cfxn6r74jkyrkb",
+      "grafana.app/updatedTimestamp": "2026-09-17T13:43:49Z"
     }
   },
   "spec": {
@@ -72,9 +72,9 @@
                         "name": "missing-folders"
                       },
                       "spec": {
-                        "queryText": "SELECT\n  unixepoch(created_at) AS time,\n  expected_count,\n  present_count,\n  missing_count\nFROM scan_data\nORDER BY created_at ASC;",
+                        "queryText": "SELECT \n    strftime('%s', scan_time) AS time, \n    source AS metric, \n    1 AS value \nFROM scan_data_history\nWHERE time not NULL;",
                         "queryType": "table",
-                        "rawQueryText": "SELECT\n  unixepoch(created_at) AS time,\n  expected_count,\n  present_count,\n  missing_count\nFROM scan_data\nORDER BY created_at ASC;",
+                        "rawQueryText": "SELECT \n    strftime('%s', scan_time) AS time, \n    source AS metric, \n    1 AS value \nFROM scan_data_history\nWHERE time not NULL;",
                         "timeColumns": [
                           "time",
                           "ts"
@@ -86,7 +86,202 @@
                   }
                 }
               ],
-              "transformations": [],
+              "transformations": [
+                {
+                  "kind": "Transformation",
+                  "group": "partitionByValues",
+                  "spec": {
+                    "options": {
+                      "fields": [
+                        "metric"
+                      ],
+                      "keepFields": false,
+                      "naming": {
+                        "asLabels": true
+                      }
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "calculateField",
+                  "spec": {
+                    "options": {
+                      "alias": "Freesurfer",
+                      "cumulative": {
+                        "field": "value FREESURFER",
+                        "reducer": "sum"
+                      },
+                      "mode": "cumulativeFunctions",
+                      "reduce": {
+                        "reducer": "sum"
+                      },
+                      "replaceFields": false
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "calculateField",
+                  "spec": {
+                    "options": {
+                      "alias": "Google Sheets",
+                      "cumulative": {
+                        "field": "value GOOGLE_SHEETS",
+                        "reducer": "sum"
+                      },
+                      "mode": "cumulativeFunctions",
+                      "reduce": {
+                        "reducer": "sum"
+                      }
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "calculateField",
+                  "spec": {
+                    "options": {
+                      "alias": "tabular CAT12",
+                      "cumulative": {
+                        "field": "value TABULAR_CAT12",
+                        "reducer": "sum"
+                      },
+                      "mode": "cumulativeFunctions",
+                      "reduce": {
+                        "reducer": "sum"
+                      }
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "calculateField",
+                  "spec": {
+                    "options": {
+                      "alias": "Bids",
+                      "cumulative": {
+                        "field": "value BIDS",
+                        "reducer": "sum"
+                      },
+                      "mode": "cumulativeFunctions",
+                      "reduce": {
+                        "reducer": "sum"
+                      }
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "calculateField",
+                  "spec": {
+                    "options": {
+                      "alias": "Raw Data",
+                      "cumulative": {
+                        "field": "value RAW_DATA",
+                        "reducer": "sum"
+                      },
+                      "mode": "cumulativeFunctions",
+                      "reduce": {
+                        "reducer": "sum"
+                      }
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "calculateField",
+                  "spec": {
+                    "options": {
+                      "alias": "Tabular data",
+                      "cumulative": {
+                        "field": "value TABULAR",
+                        "reducer": "sum"
+                      },
+                      "mode": "cumulativeFunctions",
+                      "reduce": {
+                        "reducer": "sum"
+                      }
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "calculateField",
+                  "spec": {
+                    "options": {
+                      "alias": "QsiPrep",
+                      "cumulative": {
+                        "field": "value QSIPREP",
+                        "reducer": "sum"
+                      },
+                      "mode": "cumulativeFunctions",
+                      "reduce": {
+                        "reducer": "sum"
+                      }
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "calculateField",
+                  "spec": {
+                    "options": {
+                      "alias": "QsiRecon",
+                      "cumulative": {
+                        "field": "value QSIRECON",
+                        "reducer": "sum"
+                      },
+                      "mode": "cumulativeFunctions",
+                      "reduce": {
+                        "reducer": "sum"
+                      }
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "calculateField",
+                  "spec": {
+                    "options": {
+                      "alias": "CAT12",
+                      "cumulative": {
+                        "field": "value CAT",
+                        "reducer": "sum"
+                      },
+                      "mode": "cumulativeFunctions",
+                      "reduce": {
+                        "reducer": "sum"
+                      }
+                    }
+                  }
+                },
+                {
+                  "kind": "Transformation",
+                  "group": "organize",
+                  "spec": {
+                    "options": {
+                      "excludeByName": {
+                        "time FREESURFER": false,
+                        "time GOOGLE_SHEETS": false,
+                        "value BIDS": true,
+                        "value CAT": true,
+                        "value FREESURFER": true,
+                        "value GOOGLE_SHEETS": true,
+                        "value QSIPREP": true,
+                        "value QSIRECON": true,
+                        "value RAW_DATA": true,
+                        "value TABULAR": true,
+                        "value TABULAR_CAT12": true
+                      },
+                      "includeByName": {},
+                      "indexByName": {},
+                      "orderByMode": "manual",
+                      "renameByName": {}
+                    }
+                  }
+                }
+              ],
               "queryOptions": {}
             }
           },
@@ -116,40 +311,18 @@
                       {
                         "value": 0,
                         "color": "green"
-                      },
-                      {
-                        "value": 80,
-                        "color": "red"
                       }
                     ]
                   },
                   "color": {
                     "mode": "palette-classic"
                   },
-                  "actions": [
-                    {
-                      "type": "fetch",
-                      "title": "test",
-                      "fetch": {
-                        "method": "POST",
-                        "url": "https://example.com",
-                        "body": "{}",
-                        "headers": [
-                          [
-                            "Content-Type",
-                            "application/json"
-                          ]
-                        ]
-                      },
-                      "confirmation": "bloop"
-                    }
-                  ],
                   "custom": {
                     "axisBorderShow": false,
                     "axisCenteredZero": false,
                     "axisColorMode": "text",
                     "axisLabel": "",
-                    "axisPlacement": "left",
+                    "axisPlacement": "auto",
                     "barAlignment": 0,
                     "barWidthFactor": 0.6,
                     "drawStyle": "line",
@@ -208,9 +381,9 @@
                         "name": "missing-folders"
                       },
                       "spec": {
-                        "queryText": "SELECT  unixepoch(created_at) AS time,\n expected_count, present_count, missing_count FROM scan_data ORDER BY created_at ASC;",
+                        "queryText": "SELECT \n    source AS metric, \n    COUNT(*) AS value\nFROM \n    scan_data_history\nGROUP BY \n    source;",
                         "queryType": "table",
-                        "rawQueryText": "SELECT  unixepoch(created_at) AS time,\n expected_count, present_count, missing_count FROM scan_data ORDER BY created_at ASC;",
+                        "rawQueryText": "SELECT \n    source AS metric, \n    COUNT(*) AS value\nFROM \n    scan_data_history\nGROUP BY \n    source;",
                         "timeColumns": [
                           "time",
                           "ts"
@@ -248,7 +421,7 @@
                     "lastNotNull"
                   ],
                   "fields": "",
-                  "values": false
+                  "values": true
                 },
                 "segmentCount": 1,
                 "segmentSpacing": 0.3,
@@ -299,7 +472,7 @@
               "x": 0,
               "y": 0,
               "width": 24,
-              "height": 8,
+              "height": 14,
               "element": {
                 "kind": "ElementReference",
                 "name": "panel-2"
@@ -310,8 +483,8 @@
             "kind": "GridLayoutItem",
             "spec": {
               "x": 0,
-              "y": 8,
-              "width": 23,
+              "y": 14,
+              "width": 24,
               "height": 14,
               "element": {
                 "kind": "ElementReference",
@@ -341,7 +514,7 @@
     "tags": [],
     "timeSettings": {
       "timezone": "browser",
-      "from": "now-6h",
+      "from": "now-6M",
       "to": "now",
       "autoRefresh": "",
       "autoRefreshIntervals": [
