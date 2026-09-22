@@ -14,13 +14,13 @@ async def lifespan(app: FastAPI):
     logger.info("Starting up FastAPI application")
     init_and_commit()
 
-    # scheduler.add_job(
-    #     update_db,
-    #     trigger="cron",
-    #     minute="*/15",  
-    #     id="my_cron_job",
-    #     replace_existing=True
-    # )
+    scheduler.add_job(
+        update_db,
+        trigger="cron",
+        minute="*/15",  
+        id="my_cron_job",
+        replace_existing=True
+    )
     
     scheduler.start()
     logger.info("Scheduler started successfully.")
