@@ -14,6 +14,8 @@ services:
     image: grafana/grafana:13.2.1
     depends_on:
       - api
+    user: "0:0"
+    entrypoint: ["sh", "-c", "chown -R 472:472 /data && exec /run.sh"]
     environment:
       GF_INSTALL_PLUGINS: "frser-sqlite-datasource"
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -23,7 +25,7 @@ services:
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana-data:/var/lib/grafana
-      - scan-data:/data/scan-data:ro
+      - scan-data:/data/scan-data:rw
     ports:
       - "3000:3000"
     restart: unless-stopped

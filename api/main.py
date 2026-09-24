@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
         trigger="cron",
         minute="*/15",  
         id="my_cron_job",
-        replace_existing=True
+        replace_existing=False
     )
     
     scheduler.start()

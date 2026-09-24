@@ -26,7 +26,7 @@ SHEET_URL = os.getenv(
     "https://docs.google.com/spreadsheets/d/1YvhfZ8k3xafsN1ijtOl1uESG4w48-2jVnnWQM-s_OQM/export?format=csv",
 )
 DB_LOC = os.getenv("DB_LOCATION", "/data/scan-data/presentation_data.db")
-SMB_WORKERS = int(os.getenv("SMB_WORKERS", 50))
+SMB_WORKERS = int(os.getenv("SMB_WORKERS", 20))
 MAX_SMB_QUERY_ATTEMPTS = int(os.getenv("SMB_QUERY_ATTEMPTS", 50))
 MAX_SMB_SLEEP = int(os.getenv("SMB_MAX_SLEEP", 20))
 
@@ -67,7 +67,7 @@ def _exponential_decay(
         except exc as e:
             last_exc = e
             sleep_time = min(max_sleep, 2**i)
-            logger.warning(
+            logger.exception(
                 f"exception raised while trying to run {func} "
                 f"attempt number: {i} "
                 f"args: {args} {kwargs} "
@@ -84,19 +84,31 @@ def default_trying_smb(func: Callable, exc: Exception, *args, **kwargs):
 
 def _get_smb_dirs(path: str, modified_after: datetime | None, search: str= "*") -> list[SMBDirEntry]:
     return_list = []
+    total_dirs = 0
+    total_skipped_not_dir = 0
+    total_skipped_not_modified = 0
     for ses in smbclient.scandir(path, search):
+        total_dirs+=1
         last_time_write = ses._dir_info.last_write_time
         if not ses.is_dir():
-            logger.info(f"skipping {ses.name} not dir")
+            logger.debug(f"skipping {ses.name} not dir")
+            total_skipped_not_dir+=1
             continue
         elif modified_after and last_time_write < modified_after.replace(tzinfo=timezone.utc):
-            logger.info(
+            logger.debug(
                 f"skipping {ses.name}, "
                 f"last_write_time: {ses._dir_info.last_write_time} "
                 f"which is before: {modified_after}"
             )
+            total_skipped_not_modified+=1
             continue
         return_list.append(ses)
+    logger.info(
+            f"total dirs in {path}: {total_dirs}, "
+            f"amount of skipped files (not directories): {total_skipped_not_dir}, "
+            f"amount of directories not modified after {modified_after}: {total_skipped_not_modified}"
+        )
+
     return return_list
 
 def get_smb_dirs(path: str, modified_after: datetime | None, search: str = "*") -> list[SMBDirEntry]:
@@ -114,7 +126,7 @@ def _insert_sub_ses_file_structure(
         modified_after: datetime | None,
         name: sql.Source
     ) -> str:
-    logger.info(f"enumerating {subject_dir.name}")
+    logger.debug(f"enumerating {subject_dir.name}")
     sessions = get_smb_dirs(subject_dir.path, modified_after, "ses-*")
     with sqlite3.connect(DB_LOC, timeout=20) as conn:
         try:
@@ -125,7 +137,7 @@ def _insert_sub_ses_file_structure(
                     (
                         _format_datetime_ses(ses.name[4:16]),
                         name,
-                        None, # FIXME need to check how to find what status the session as actually at
+                        sql.Status.UNKOWN, # FIXME need to check how to find what status the session as actually at
                         ses.path,
                         subject_dir.name[4:16]
                     ) for ses in sessions 
@@ -146,12 +158,12 @@ def insert_sub_ses(
         name: sql.Source | str,
         modified_after: datetime
     ) -> None:
-    logger.info(f"getting {path}, subject directories")
+    logger.info(f"getting {path}, subject directories after {modified_after}")
     with sqlite3.connect(DB_LOC, timeout=20) as conn:
         job_id = sql.insert_job_entry(conn.cursor(), name)
 
     subject_dirs = get_smb_dirs(path, modified_after, "sub-*")
-    logger.info(f"got {len(subject_dirs)} subject directories")
+    logger.debug(f"got {len(subject_dirs)} subject directories")
     all_futures = []
     for directory in subject_dirs:
         all_futures.append(executer.submit(
@@ -174,14 +186,14 @@ def insert_sub_ses(
 
 
 def list_google_sheets() -> list[tuple]:
-    logger.info("getting excel folder names")
+    logger.debug("getting excel folder names")
     col_index = 0
     series = pd.read_csv(SHEET_URL, usecols=[col_index], header=None, dtype=str).iloc[:, 0]
     return [
         (
             _format_datetime_raw(scan_id),
             sql.Source.GOOGLE_SHEETS.value,
-           None,
+           sql.Status.UNKOWN,
            None,
            None
         ) 
@@ -189,12 +201,12 @@ def list_google_sheets() -> list[tuple]:
     ]
 
 def insert_raw_data(modified_after: datetime | None)-> list:
-    logger.info("getting raw data")
+    logger.info(f"getting raw data after {modified_after}")
     all_raw_scans = [
         (
            _format_datetime_raw(scan_dir.name),
            sql.Source.RAW_DATA.value,
-           None,
+           sql.Status.UNKOWN,
            scan_dir.path,
            None
         ) 
@@ -205,9 +217,8 @@ def insert_raw_data(modified_after: datetime | None)-> list:
     return all_raw_scans
 
 def list_freesurfer(modified_after: datetime | None):
-    logger.info("getting freesurfer data")
+    logger.debug("getting freesurfer data")
     all_entries = []
-    # for directory in smbclient.scandir(NAS_PATH/"Processed_Data"/"derivatives"/"freesurfer"):
     for directory in get_smb_dirs(NAS_PATH/"Processed_Data"/"derivatives"/"freesurfer", modified_after=modified_after):
         if directory.is_dir():
             name = directory.name
@@ -320,21 +331,36 @@ def _update_db(last_modified_dict: dict[str, datetime]) -> list[Exception]:
 
         with sqlite3.connect(DB_LOC, timeout=20) as conn:
             cursor = conn.cursor()
-            sql.insert_scan_many(
-                cursor, 
-                insert_raw_data(last_modified_dict[sql.Source.RAW_DATA.value])
-            )
-            
-            sql.insert_scan_many(
-                cursor, 
-                list_google_sheets()
-            )
+            raw_data_job_id = sql.insert_job_entry(cursor, sql.Source.RAW_DATA)
+            try:
+                sql.insert_scan_many(
+                    cursor, 
+                    insert_raw_data(last_modified_dict[sql.Source.RAW_DATA.value])
+                )
+                sql.update_successful_job(cursor, raw_data_job_id)
+            except Exception as e:
+                sql.update_job_based_on_exceptions(cursor,raw_data_job_id, [e])
 
-            sql.insert_scan_many(
-                cursor,
-                list_freesurfer(last_modified_dict[sql.Source.FREESURFER.value])
-            )
-            
+            google_sheets_id = sql.insert_job_entry(cursor, sql.Source.GOOGLE_SHEETS)
+            try:
+                sql.insert_scan_many(
+                    cursor, 
+                    list_google_sheets()
+                )
+                sql.update_successful_job(cursor, google_sheets_id)
+            except Exception as e:
+                sql.update_job_based_on_exceptions(cursor,google_sheets_id, [e])
+
+            free_surfer_id = sql.insert_job_entry(cursor, sql.Source.FREESURFER)
+            try:
+                sql.insert_scan_many(
+                    cursor,
+                    list_freesurfer(last_modified_dict[sql.Source.FREESURFER.value])
+                )
+                sql.update_successful_job(cursor, free_surfer_id)
+            except Exception as e:
+                sql.update_job_based_on_exceptions(cursor,free_surfer_id, [e])
+
     logger.info("finished update")
     return worker_exceptions
 
@@ -375,20 +401,3 @@ def update_db() -> None:
                 datetime.now(tz=timezone.utc)
             )
         raise e
-
-
-if __name__ == "__main__":
-    update_db()
-    # with sqlite3.connect(DB_LOC, timeout=20) as conn:
-    #     cursor = conn.cursor()
-    #     sql.create_smb_scraping_jobs_table(cursor)
-    #     bids_id = sql.insert_job_entry(cursor, sql.Source.BIDS)
-    #     freesurfer_id = sql.insert_job_entry(cursor, sql.Source.FREESURFER)
-    #     orchestrator_id = sql.insert_job_entry(cursor, sql.Source.ORCHESTRATORE)
-
-    #     sql.upadate_job_entry(cursor, bids_id, sql.JobStatus.COMPLETED)
-    #     sql.upadate_job_entry(cursor, orchestrator_id, sql.JobStatus.ERROR)
-    #     sql.upadate_job_entry(cursor, freesurfer_id, sql.JobStatus.COMPLETED)
-
-    #     print(sql.get_last_completed_scan_with_buffer(cursor))
-

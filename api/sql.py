@@ -17,6 +17,7 @@ class Status(StrEnum):
     FREESURFER_SUBJECT_ONLY_DIR="FREESURFER_SUBJECT_ONLY_DIR"
     FREESURFER_SUBJECT_SESSION_DIR="FREESURFER_SUBJECT_SESSION_DIR"
     FREESURFER_SUBJECT_SESSION_LONG_DIR="FREESURFER_SUBJECT_SESSION_LONG_DIR"
+    UNKOWN = "UNKOWN"
 
 class JobStatus(StrEnum):
     ONGOING = "ONGOING"
@@ -55,9 +56,9 @@ def create_scan_history_table(cursor: Cursor) -> None:
         CREATE TABLE IF NOT EXISTS scan_data_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             scraped_at DATETIME DEFAULT (datetime('now')),
-            scan_time DATETIME,
+            scan_time DATETIME NOT NULL,
             source TEXT NOT NULL,
-            status TEXT,
+            status TEXT NOT NULL,
             full_path TEXT,
             scanner_subject_id TEXT,
             UNIQUE(scan_time, source, status)  
@@ -97,9 +98,12 @@ def upadate_job_entry(
         (status, error_msg, stop_time ,id)
     )
 
+def update_successful_job(cursor: Cursor, job_id: int):
+    upadate_job_entry(cursor, job_id, JobStatus.COMPLETED, stop_time=datetime.now(tz=timezone.utc))
+
 def update_job_based_on_exceptions(cursor: Cursor, job_id: int, all_exc: list[Exception | None]) -> None:
     if not all_exc:
-        upadate_job_entry(cursor, job_id, JobStatus.COMPLETED, stop_time=datetime.now(tz=timezone.utc))
+        update_successful_job(cursor, job_id)
     else:
         upadate_job_entry(
             cursor, 
