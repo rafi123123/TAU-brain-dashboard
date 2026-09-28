@@ -6,11 +6,20 @@ from typing_extensions import Self
 from dotenv import load_dotenv
 import os
 import traceback
+import sqlite3
+import threading
+from contextlib import contextmanager
+from logger_config import get_logger
+
 
 load_dotenv()
+logger = get_logger(__name__)
+
 CHECK_BEFORE_INSERT = bool(os.getenv("CHECK_BEFORE_INSERT", True))
 AMOUNT_CHECK_BEFORE_INSERT = int(os.getenv("AMOUNT_CHECK_BEFORE_INSERT", 5))
 TIME_BUFFER_BETWEEN_SCANS_MINUTES = int(os.getenv("TIME_BUFFER_BETWEEN_SCANS_MINUTES", 15))
+DB_LOC = os.getenv("DB_LOCATION", "/data/scan-data/presentation_data.db")
+
 
 class Status(StrEnum):
     COMPLETED = "COMPLETED"
@@ -37,7 +46,7 @@ class Source(StrEnum):
     ORCHESTRATORE = "ORCHESTRATORE" # the script that orchestrates all the scraping 
     # since it can fail it is an entry in the smb_scraping DB
 
-class ScanData(BaseModel):
+class   ScanData(BaseModel):
     scan_time: datetime | None
     source: Source
     full_path: str | None
@@ -160,3 +169,28 @@ def insert_scan_many(cursor: Cursor, scan_data_list: list[tuple]) -> None:
                 scanner_subject_id=data[4],
             )
     cursor.executemany(INSERT_SQL,scan_data_list)
+
+
+
+_write_lock = threading.Lock()
+
+@contextmanager
+def write_lock():
+    """Any thread that writes must hold this. Others block until it's free."""
+    with _write_lock:
+        yield
+
+@contextmanager
+def write_connection():
+    """Acquire the lock, open a connection, commit on success / roll back on error."""
+    with _write_lock:
+        conn = sqlite3.connect(DB_LOC, timeout=0)
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            logger.exception("got exception while writing to db")
+            conn.rollback()
+            raise
+        finally:
+            conn.close()

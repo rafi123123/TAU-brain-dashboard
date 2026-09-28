@@ -120,6 +120,12 @@ def _format_datetime_raw(date_time_str: str) -> datetime:
 def _format_datetime_ses(date_time_str: str) -> datetime:
     return datetime.strptime(date_time_str,"%Y%m%d%H%M").strftime("%Y-%m-%d %H:%M:%S")
 
+def get_ses_dirs(path: str, modified_after: datetime) -> list[SMBDirEntry]:
+    return get_smb_dirs(path, modified_after, "ses-*")
+
+def get_sub_dirs(path: str, modified_after: datetime) -> list[SMBDirEntry]:
+    return get_smb_dirs(path, modified_after, "sub-*")
+
 @log_exceptions
 def _insert_sub_ses_file_structure(
         subject_dir: SMBDirEntry, 
@@ -127,8 +133,9 @@ def _insert_sub_ses_file_structure(
         name: sql.Source
     ) -> str:
     logger.debug(f"enumerating {subject_dir.name}")
-    sessions = get_smb_dirs(subject_dir.path, modified_after, "ses-*")
-    with sqlite3.connect(DB_LOC, timeout=20) as conn:
+    sessions = get_ses_dirs(subject_dir.path, modified_after)
+    # with sqlite3.connect(DB_LOC, timeout=20) as conn:
+    with sql.write_connection() as conn:
         try:
             cursor = conn.cursor()
             sql.insert_scan_many(
@@ -158,11 +165,12 @@ def insert_sub_ses(
         name: sql.Source | str,
         modified_after: datetime
     ) -> None:
-    logger.info(f"getting {path}, subject directories after {modified_after}")
-    with sqlite3.connect(DB_LOC, timeout=20) as conn:
+    logger.info(f"scraping {name} at getting {path}, subject directories after {modified_after}")
+    # with sqlite3.connect(DB_LOC, timeout=20) as conn:
+    with sql.write_connection() as conn:
         job_id = sql.insert_job_entry(conn.cursor(), name)
 
-    subject_dirs = get_smb_dirs(path, modified_after, "sub-*")
+    subject_dirs = get_sub_dirs(path, modified_after)
     logger.debug(f"got {len(subject_dirs)} subject directories")
     all_futures = []
     for directory in subject_dirs:
@@ -179,9 +187,11 @@ def insert_sub_ses(
         if exc:
             all_exceptions.append(exc)
 
-    with sqlite3.connect(DB_LOC, timeout=20) as conn:
+    # with sqlite3.connect(DB_LOC, timeout=20) as conn:
+    with sql.write_connection() as conn:
         cursor = conn.cursor()
         sql.update_job_based_on_exceptions(cursor, job_id, all_exceptions)
+    logger.info(f"finished scraping {name}")
 
 
 
@@ -253,7 +263,7 @@ def list_freesurfer(modified_after: datetime | None):
 
 def init_and_commit():
     logger.info("initializing DB")
-    with sqlite3.connect(DB_LOC) as conn:
+    with sql.write_connection() as conn:
         cursor = conn.cursor()
         sql.create_scan_history_table(cursor)
         
@@ -329,7 +339,7 @@ def _update_db(last_modified_dict: dict[str, datetime]) -> list[Exception]:
 
         worker_exceptions += [future.exception() for future in all_futures]
 
-        with sqlite3.connect(DB_LOC, timeout=20) as conn:
+        with sql.write_connection() as conn:
             cursor = conn.cursor()
             raw_data_job_id = sql.insert_job_entry(cursor, sql.Source.RAW_DATA)
             try:
@@ -366,11 +376,7 @@ def _update_db(last_modified_dict: dict[str, datetime]) -> list[Exception]:
 
 def update_db() -> None:
     logger.info("initiating DB update")
-
-    logger.info("connecting to smb")
-    smbclient.register_session(NAS_HOST, username=NAS_USERNAME, password=NAS_PASSWORD)
-
-    with sqlite3.connect(DB_LOC, timeout=20) as conn:
+    with sql.write_connection() as conn:
         cursor = conn.cursor()
 
         logger.info("creating sqlite cron jobs table")
@@ -384,14 +390,16 @@ def update_db() -> None:
 
     
     try:
+        logger.info("connecting to smb")
+        smbclient.register_session(NAS_HOST, username=NAS_USERNAME, password=NAS_PASSWORD)
         all_thread_exceptions = _update_db(scrape_from)
         all_thread_exceptions = [e for e in all_thread_exceptions if e]
-        with sqlite3.connect(DB_LOC, timeout=20) as conn:
+        with sql.write_connection() as conn:
             cursor = conn.cursor()
             sql.update_job_based_on_exceptions(cursor,orchestrator_id,all_thread_exceptions)
 
     except Exception as e:
-        with sqlite3.connect(DB_LOC, timeout=20) as conn:
+        with sql.write_connection() as conn:
             cursor = conn.cursor()
             sql.upadate_job_entry(
                 cursor, 

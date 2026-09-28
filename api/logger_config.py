@@ -10,17 +10,16 @@ def get_logger(logger_name: str = None, log_file: str = "app.log") -> logging.Lo
     log_format = "[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s"
     date_format = "%Y-%m-%d %H:%M:%S"
     
-    # 1. Console handler: WARNING and above
-    stream_handler = logging.StreamHandler(sys.stdout)
-    stream_handler.setLevel(logging.WARNING)
     
-    # 2. File handler: INFO and above
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setLevel(logging.DEBUG)
+    
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.INFO)
     
     # Root logger level MUST be set to INFO (or DEBUG) so INFO messages aren't discarded globally
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,
         format=log_format,
         datefmt=date_format,
         handlers=[stream_handler, file_handler],
