@@ -1,6 +1,7 @@
 from logger_config import get_logger
 from fastapi import FastAPI, BackgroundTasks
 from cron import update_db, init_and_commit
+import sql
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -12,7 +13,7 @@ scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up FastAPI application")
-    init_and_commit()
+    await init_and_commit()
 
     scheduler.add_job(
         update_db,
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down FastAPI application")
     scheduler.shutdown(wait=False)
     logger.info("Scheduler stopped")
+    await sql.close_pool()
 
 
 app = FastAPI(title="Missing Folders API", lifespan=lifespan)

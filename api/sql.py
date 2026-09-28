@@ -1,28 +1,24 @@
-from sqlite3  import Cursor
+from psycopg import AsyncCursor
+from psycopg_pool import AsyncConnectionPool
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from pydantic import BaseModel, model_validator
-from typing_extensions import Self
+from typing import Self
 from dotenv import load_dotenv
 import os
 import traceback
-import sqlite3
-import threading
-from contextlib import contextmanager
 from logger_config import get_logger
 
 
 load_dotenv()
 logger = get_logger(__name__)
 
-CHECK_BEFORE_INSERT = bool(os.getenv("CHECK_BEFORE_INSERT", True))
-AMOUNT_CHECK_BEFORE_INSERT = int(os.getenv("AMOUNT_CHECK_BEFORE_INSERT", 5))
 TIME_BUFFER_BETWEEN_SCANS_MINUTES = int(os.getenv("TIME_BUFFER_BETWEEN_SCANS_MINUTES", 15))
-DB_LOC = os.getenv("DB_LOCATION", "/data/scan-data/presentation_data.db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/scan_data")
+DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", 25))
 
 
 class Status(StrEnum):
-    COMPLETED = "COMPLETED"
     FREESURFER_SUBJECT_ONLY_DIR="FREESURFER_SUBJECT_ONLY_DIR"
     FREESURFER_SUBJECT_SESSION_DIR="FREESURFER_SUBJECT_SESSION_DIR"
     FREESURFER_SUBJECT_SESSION_LONG_DIR="FREESURFER_SUBJECT_SESSION_LONG_DIR"
@@ -54,18 +50,17 @@ class   ScanData(BaseModel):
     scanner_subject_id: str | None
 
     @model_validator(mode='after')
-    def check_passwords_match(self) -> Self:
+    def check_scan_time(self) -> Self:
         if not self.scan_time and ( self.source != Source.FREESURFER or not self.scanner_subject_id):
             raise ValueError("scan_time is allowed to be None only for freesurfer source given a subject ID")
         return self
 
-def create_scan_history_table(cursor: Cursor) -> None:
-    cursor.execute("PRAGMA journal_mode=WAL;")
-    cursor.execute("""
+async def create_scan_history_table(cursor: AsyncCursor) -> None:
+    await cursor.execute("""
         CREATE TABLE IF NOT EXISTS scan_data_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            scraped_at DATETIME DEFAULT (datetime('now')),
-            scan_time DATETIME NOT NULL,
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            scraped_at TIMESTAMPTZ DEFAULT now(),
+            scan_time TIMESTAMP NOT NULL,
             source TEXT NOT NULL,
             status TEXT NOT NULL,
             full_path TEXT,
@@ -74,47 +69,46 @@ def create_scan_history_table(cursor: Cursor) -> None:
         )
     """)
 
-def create_smb_scraping_jobs_table(cursor: Cursor) -> None:
-    cursor.execute("PRAGMA journal_mode=WAL;")
-    cursor.execute("""
+async def create_smb_scraping_jobs_table(cursor: AsyncCursor) -> None:
+    await cursor.execute("""
         CREATE TABLE IF NOT EXISTS smb_scraping_jobs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            start_time DATETIME DEFAULT (datetime('now')),
-            stop_time DATETIME,
+            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+            start_time TIMESTAMPTZ DEFAULT now(),
+            stop_time TIMESTAMPTZ,
             source TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'ONGOING',
             error_msg TEXT
         )
     """)
 
-def insert_job_entry(cursor: Cursor, source: Source) -> int:
-    cursor.execute(
-        "INSERT INTO smb_scraping_jobs (source) VALUES (?) RETURNING id", (source, )
+async def insert_job_entry(cursor: AsyncCursor, source: Source) -> int:
+    await cursor.execute(
+        "INSERT INTO smb_scraping_jobs (source) VALUES (%s) RETURNING id", (source, )
     )
-    return cursor.fetchone()[0]
+    return (await cursor.fetchone())[0]
 
-def upadate_job_entry(
-        cursor: Cursor, 
+async def upadate_job_entry(
+        cursor: AsyncCursor, 
         id: int ,
         status: JobStatus, 
         error_msg: str | None = None, 
         stop_time: datetime | None = None
     ) -> None:
-    cursor.execute(
+    await cursor.execute(
         """UPDATE smb_scraping_jobs 
-        SET status=?, error_msg=?, stop_time=?
-        WHERE id=?""", 
+        SET status=%s, error_msg=%s, stop_time=%s
+        WHERE id=%s""", 
         (status, error_msg, stop_time ,id)
     )
 
-def update_successful_job(cursor: Cursor, job_id: int):
-    upadate_job_entry(cursor, job_id, JobStatus.COMPLETED, stop_time=datetime.now(tz=timezone.utc))
+async def update_successful_job(cursor: AsyncCursor, job_id: int):
+    await upadate_job_entry(cursor, job_id, JobStatus.COMPLETED, stop_time=datetime.now(tz=timezone.utc))
 
-def update_job_based_on_exceptions(cursor: Cursor, job_id: int, all_exc: list[Exception | None]) -> None:
+async def update_job_based_on_exceptions(cursor: AsyncCursor, job_id: int, all_exc: list[Exception | None]) -> None:
     if not all_exc:
-        update_successful_job(cursor, job_id)
+        await update_successful_job(cursor, job_id)
     else:
-        upadate_job_entry(
+        await upadate_job_entry(
             cursor, 
             job_id, 
             JobStatus.ERROR,
@@ -122,33 +116,39 @@ def update_job_based_on_exceptions(cursor: Cursor, job_id: int, all_exc: list[Ex
             datetime.now(tz=timezone.utc)
         )
 
-def get_last_completed_scan_with_buffer(cursor: Cursor) -> dict[str, datetime]:
-    cursor.execute(
+async def get_last_completed_scan_with_buffer(cursor: AsyncCursor) -> dict[str, datetime]:
+    await cursor.execute(
         "SELECT max(start_time), source from smb_scraping_jobs WHERE status='COMPLETED' GROUP BY source "
     )
-    response = cursor.fetchall()
+    response = await cursor.fetchall()
     return_dict = {source.value: None for source in Source}
-    for str_time, source in response:
-        result = datetime.strptime(str_time, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+    for start_time, source in response:
+        result = start_time.astimezone(timezone.utc)
         result = result - timedelta(minutes=TIME_BUFFER_BETWEEN_SCANS_MINUTES)
         return_dict[source] = result
     return return_dict
 
 
 INSERT_SQL = """
-            INSERT OR IGNORE INTO scan_data_history (
+            INSERT INTO scan_data_history (
                 scan_time, 
                 source, 
                 status, 
                 full_path, 
                 scanner_subject_id
             )
-            VALUES (? , ?, ?, ?, ?);
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (scan_time, source, status) DO NOTHING;
         """
 
 
-def insert_scan_single(cursor: Cursor, scan_data: ScanData) -> None:
-    cursor.execute(INSERT_SQL,
+async def insert_scan_single(cursor: AsyncCursor, scan_data: ScanData) -> None:
+    # sqlite's INSERT OR IGNORE silently dropped rows violating NOT NULL,
+    # postgres would raise and abort the transaction instead so skip them here
+    if scan_data.scan_time is None:
+        logger.debug(f"skipping row without scan_time: {scan_data}")
+        return
+    await cursor.execute(INSERT_SQL,
         (
             scan_data.scan_time, 
             scan_data.source, 
@@ -158,39 +158,15 @@ def insert_scan_single(cursor: Cursor, scan_data: ScanData) -> None:
         )
     )
 
-def insert_scan_many(cursor: Cursor, scan_data_list: list[tuple]) -> None:
-    if CHECK_BEFORE_INSERT:
-        for data in scan_data_list[:AMOUNT_CHECK_BEFORE_INSERT]:
-            ScanData(
-                scan_time=data[0],
-                source=data[1],
-                status=data[2],
-                full_path=data[3],
-                scanner_subject_id=data[4],
-            )
-    cursor.executemany(INSERT_SQL,scan_data_list)
 
+_pool = AsyncConnectionPool(DATABASE_URL, max_size=DB_POOL_MAX_SIZE, open=False)
 
+async def open_pool() -> None:
+    await _pool.open()
 
-_write_lock = threading.Lock()
+async def close_pool() -> None:
+    await _pool.close()
 
-@contextmanager
-def write_lock():
-    """Any thread that writes must hold this. Others block until it's free."""
-    with _write_lock:
-        yield
-
-@contextmanager
-def write_connection():
-    """Acquire the lock, open a connection, commit on success / roll back on error."""
-    with _write_lock:
-        conn = sqlite3.connect(DB_LOC, timeout=0)
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            logger.exception("got exception while writing to db")
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+def connection():
+    """Borrow a connection from the pool, commits on success / rolls back on error."""
+    return _pool.connection()

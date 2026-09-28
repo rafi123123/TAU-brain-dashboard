@@ -4,20 +4,42 @@ services:
       context: .
       dockerfile: api/Dockerfile
     env_file: api/.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-scan_data}:${POSTGRES_PASSWORD:-scan_data}@postgres:5432/${POSTGRES_DB:-scan_data}
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8000:8000"
     restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-scan_data}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scan_data}
+      POSTGRES_DB: ${POSTGRES_DB:-scan_data}
     volumes:
-      - scan-data:/data/scan-data:rw
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
 
   grafana:
     image: grafana/grafana:13.2.1
     depends_on:
-      - api
+      api:
+        condition: service_started
+      postgres:
+        condition: service_healthy
     user: "0:0"
-    entrypoint: ["sh", "-c", "chown -R 472:472 /data && exec /run.sh"]
     environment:
-      GF_INSTALL_PLUGINS: "frser-sqlite-datasource"
+      POSTGRES_USER: ${POSTGRES_USER:-scan_data}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scan_data}
+      POSTGRES_DB: ${POSTGRES_DB:-scan_data}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_NAME: "TAU brain"
@@ -25,11 +47,10 @@ services:
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - grafana-data:/var/lib/grafana
-      - scan-data:/data/scan-data:rw
     ports:
       - "3000:3000"
     restart: unless-stopped
 
 volumes:
+  postgres-data:
   grafana-data:
-  scan-data:

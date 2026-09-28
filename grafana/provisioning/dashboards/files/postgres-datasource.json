@@ -4,12 +4,12 @@
   "metadata": {
     "name": "adv6tgf",
     "namespace": "default",
-    "uid": "9d5f1bb7-b9cd-4893-a545-968d29ee9e09",
-    "resourceVersion": "1790243362690991",
-    "generation": 15,
-    "creationTimestamp": "2026-09-17T14:17:07Z",
+    "uid": "c03670ca-02ca-470d-b665-10c102d58163",
+    "resourceVersion": "1790601763646020",
+    "generation": 4,
+    "creationTimestamp": "2026-09-24T09:54:03Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "1912446537568256"
+      "grafana.app/deprecatedInternalID": "4382958751232000"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
@@ -17,11 +17,11 @@
       "grafana.app/managerAllowsEdits": "true",
       "grafana.app/managerId": "Default Dashboards",
       "grafana.app/saved-from-ui": "Grafana v13.2.1 (56cd3e9288)",
-      "grafana.app/sourceChecksum": "268f9df37f7dfbd146152fea08f86889",
+      "grafana.app/sourceChecksum": "2801ce6b49f9adf9bc606ddc78d5cb43",
       "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/files/sqlite-datasource.json",
-      "grafana.app/sourceTimestamp": "1789654543000",
-      "grafana.app/updatedBy": "user:efyj8x8rcfugwf",
-      "grafana.app/updatedTimestamp": "2026-09-24T09:49:22Z"
+      "grafana.app/sourceTimestamp": "1790595149000",
+      "grafana.app/updatedBy": "user:efz7knsfan8cgb",
+      "grafana.app/updatedTimestamp": "2026-09-28T13:22:43Z"
     }
   },
   "spec": {
@@ -66,19 +66,16 @@
                   "spec": {
                     "query": {
                       "kind": "DataQuery",
-                      "group": "frser-sqlite-datasource",
+                      "group": "grafana-postgresql-datasource",
                       "version": "v0",
                       "datasource": {
                         "name": "missing-folders"
                       },
                       "spec": {
-                        "queryText": "SELECT \n    strftime('%s', scan_time) AS time, \n    source AS metric, \n    1 AS value \nFROM scan_data_history\nWHERE time not NULL;",
-                        "queryType": "table",
-                        "rawQueryText": "SELECT \n    strftime('%s', scan_time) AS time, \n    source AS metric, \n    1 AS value \nFROM scan_data_history\nWHERE time not NULL;",
-                        "timeColumns": [
-                          "time",
-                          "ts"
-                        ]
+                        "editorMode": "code",
+                        "format": "table",
+                        "rawQuery": true,
+                        "rawSql": "SELECT\n    scan_time AS time,\n    source AS metric,\n    1 AS value\nFROM scan_data_history\nWHERE scan_time IS NOT NULL\nORDER BY scan_time;"
                       }
                     },
                     "refId": "A",
@@ -352,32 +349,7 @@
                     }
                   }
                 },
-                "overrides": [
-                  {
-                    "__systemRef": "hideSeriesFrom",
-                    "matcher": {
-                      "id": "byNames",
-                      "options": {
-                        "mode": "exclude",
-                        "names": [
-                          "Bids"
-                        ],
-                        "prefix": "All except:",
-                        "readOnly": true
-                      }
-                    },
-                    "properties": [
-                      {
-                        "id": "custom.hideFrom",
-                        "value": {
-                          "legend": false,
-                          "tooltip": true,
-                          "viz": true
-                        }
-                      }
-                    ]
-                  }
-                ]
+                "overrides": []
               }
             }
           },
@@ -400,19 +372,16 @@
                   "spec": {
                     "query": {
                       "kind": "DataQuery",
-                      "group": "frser-sqlite-datasource",
+                      "group": "grafana-postgresql-datasource",
                       "version": "v0",
                       "datasource": {
                         "name": "missing-folders"
                       },
                       "spec": {
-                        "queryText": "SELECT \n    source AS metric, \n    COUNT(*) AS value\nFROM \n    scan_data_history\nGROUP BY \n    source;",
-                        "queryType": "table",
-                        "rawQueryText": "SELECT \n    source AS metric, \n    COUNT(*) AS value\nFROM \n    scan_data_history\nGROUP BY \n    source;",
-                        "timeColumns": [
-                          "time",
-                          "ts"
-                        ]
+                        "editorMode": "code",
+                        "format": "table",
+                        "rawQuery": true,
+                        "rawSql": "SELECT\n    source AS metric,\n    COUNT(*) AS value\nFROM scan_data_history\nGROUP BY source;"
                       }
                     },
                     "refId": "A",
@@ -502,19 +471,16 @@
                   "spec": {
                     "query": {
                       "kind": "DataQuery",
-                      "group": "frser-sqlite-datasource",
+                      "group": "grafana-postgresql-datasource",
                       "version": "v0",
                       "datasource": {
                         "name": "missing-folders"
                       },
                       "spec": {
-                        "queryText": "SELECT\n    source AS \"Source\",\n    SUBSTR(start_time, 1, 19) || ' UTC' AS \"Start Time\",\n    CASE WHEN stop_time IS NULL THEN NULL\n         ELSE SUBSTR(stop_time, 1, 19) || ' UTC'\n    END AS \"Stop Time\",\n    status AS \"Status\",\n    error_msg AS \"Error Message\"\nFROM (\n    SELECT\n        source,\n        start_time,\n        stop_time,\n        status,\n        error_msg,\n        ROW_NUMBER() OVER (PARTITION BY source ORDER BY start_time DESC) AS rn\n    FROM smb_scraping_jobs\n) t\nWHERE rn = 1\nORDER BY source;",
-                        "queryType": "table",
-                        "rawQueryText": "SELECT\n    source AS \"Source\",\n    SUBSTR(start_time, 1, 19) || ' UTC' AS \"Start Time\",\n    CASE WHEN stop_time IS NULL THEN NULL\n         ELSE SUBSTR(stop_time, 1, 19) || ' UTC'\n    END AS \"Stop Time\",\n    status AS \"Status\",\n    error_msg AS \"Error Message\"\nFROM (\n    SELECT\n        source,\n        start_time,\n        stop_time,\n        status,\n        error_msg,\n        ROW_NUMBER() OVER (PARTITION BY source ORDER BY start_time DESC) AS rn\n    FROM smb_scraping_jobs\n) t\nWHERE rn = 1\nORDER BY source;",
-                        "timeColumns": [
-                          "time",
-                          "ts"
-                        ]
+                        "editorMode": "code",
+                        "format": "table",
+                        "rawQuery": true,
+                        "rawSql": "SELECT\n    source AS \"Source\",\n    to_char(start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC' AS \"Start Time\",\n    to_char(stop_time AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC' AS \"Stop Time\",\n    status AS \"Status\",\n    error_msg AS \"Error Message\"\nFROM (\n    SELECT DISTINCT ON (source)\n        source,\n        start_time,\n        stop_time,\n        status,\n        error_msg\n    FROM smb_scraping_jobs\n    ORDER BY source, start_time DESC\n) t\nORDER BY source;"
                       }
                     },
                     "refId": "A",
@@ -644,7 +610,7 @@
               "x": 0,
               "y": 28,
               "width": 24,
-              "height": 8,
+              "height": 12,
               "element": {
                 "kind": "ElementReference",
                 "name": "panel-3"
@@ -691,7 +657,7 @@
       "hideTimepicker": false,
       "fiscalYearStartMonth": 0
     },
-    "title": "mising folders",
+    "title": "missing folders",
     "variables": []
   }
 }
