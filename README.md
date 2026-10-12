@@ -1,31 +1,61 @@
 # Missing folders dashboard
 
-service to get all mri scan in the storage server for display in a grafana dashboard
+Service that collects all MRI scans on the storage server and displays them in a
+Grafana dashboard.
 
-# how to run
+## How to run
 
-## docker
+Start everything (api, postgres, grafana):
 
-**Start up**
 ```sh
 docker compose up --build -d
 ```
 
-**Shut Down**
+Shut down:
+
 ```sh
 docker compose down
 ```
 
-**get logs**
+Then open http://127.0.0.1:3000 in the browser (admin password: `admin`) and go
+to `Dashboards` > `missing folders`.
+
+## Useful commands
+
+**List running containers**
 
 ```sh
-docker logs dashboard_project-api-1
+docker compose ps
 ```
 
-then navigate to http://127.0.0.1:3000 in the browser.
-the admin password is `admin`.
-Go to `Dashboards` > `missing folders`
+**Follow logs of a specific container** (`api`, `postgres` or `grafana`)
 
+```sh
+docker compose logs --follow --tail 100 api
+```
+
+**Export `scan_data_history` as CSV**
+
+```sh
+docker compose exec -T postgres psql -U scan_data -d scan_data \
+    -c "\copy scan_data_history TO STDOUT WITH (FORMAT csv, HEADER)" > scan_data_history.csv
+```
+
+**Export `smb_scraping_jobs` as CSV**
+
+```sh
+docker compose exec -T postgres psql -U scan_data -d scan_data \
+    -c "\copy smb_scraping_jobs TO STDOUT WITH (FORMAT csv, HEADER)" > smb_scraping_jobs.csv
+```
+
+**Open a psql shell in the postgres container**
+
+```sh
+docker compose exec postgres psql -U scan_data -d scan_data
+```
+
+(If you overrode `POSTGRES_USER`/`POSTGRES_DB` in the environment, use those
+values instead of `scan_data`.)
 
 ## Database queries (sqlc)
 
@@ -55,15 +85,19 @@ the actual database schema is managed by alembic (below).
 
 The schema is created and evolved with [alembic](https://alembic.sqlalchemy.org): the api
 container runs `alembic upgrade head` on startup (see `api/Dockerfile`), so migrations are
-applied automatically before the app serves. To change the schema, edit `api/db/schema.sql`
-(so sqlc stays in sync), write a matching migration with
-`alembic -c api/alembic.ini revision -m "describe the change"` (run from the project root),
-fill in its `upgrade()`/`downgrade()` with the DDL, and regenerate the sqlc code. To apply
-migrations manually, run `alembic -c api/alembic.ini upgrade head` with `DATABASE_URL` set.
+applied automatically before the app serves. To change the schema:
+
+1. Edit `api/db/schema.sql` (so sqlc stays in sync).
+2. Write a matching migration: `alembic -c api/alembic.ini revision -m "describe the change"`
+   (run from the project root) and fill in its `upgrade()`/`downgrade()` with the DDL.
+3. Regenerate the sqlc code.
+
+To apply migrations manually, run `alembic -c api/alembic.ini upgrade head` with
+`DATABASE_URL` set.
 
 ## Tests
 
-```bash
+```sh
 pip install -r requirements-dev.txt
 pytest tests/
 ```
@@ -71,3 +105,9 @@ pytest tests/
 The SMB share and the Google Sheet are always faked. Postgres is real: a temporary `postgres:17`
 container is started with docker, or set `TEST_DATABASE_URL` to use an existing **throwaway**
 database (tables are dropped before every test).
+
+To run a single test without running the whole suite:
+
+```sh
+pytest tests/test_scraping.py::test_format_datetime_raw
+```

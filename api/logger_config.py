@@ -3,8 +3,10 @@ import os
 import sys
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_TO_FILE = bool(os.getenv("LOG_TO_FILE", False))
+FILE_LOG_NAME = os.getenv("FILE_LOG_NAME", "app.log")
 
-def get_logger(logger_name: str = None, log_file: str = "app.log") -> logging.Logger:
+def get_logger(logger_name: str = None) -> logging.Logger:
     """
     Configures and returns a logger instance. mainly for debugging in docker
     use `docker logs dashboard_project-api-1` to see the output on the host machine
@@ -18,9 +20,10 @@ def get_logger(logger_name: str = None, log_file: str = "app.log") -> logging.Lo
 
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setLevel(LOG_LEVEL)
-
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(LOG_LEVEL)
+    
+    if LOG_TO_FILE:
+            file_handler = logging.FileHandler(FILE_LOG_NAME)
+            file_handler.setLevel(LOG_LEVEL)
 
     # Root logger level MUST be set no higher than the handler levels so messages aren't discarded globally
     logging.basicConfig(
