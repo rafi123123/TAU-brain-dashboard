@@ -5,6 +5,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY api/.env api/*.py ./
+COPY api/db/ ./db/
 
 EXPOSE 8000
 ENV PYTHONUNBUFFERED=1

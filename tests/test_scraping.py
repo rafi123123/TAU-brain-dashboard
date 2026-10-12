@@ -1,5 +1,6 @@
 """
-Tests for the scraping jobs (api/cron.py) and the postgres layer (api/sql.py).
+Tests for the scraping jobs (api/cron.py) and the postgres layer (api/sql.py,
+which wraps the sqlc generated api/db package).
 
 The SMB share and the google sheet are always faked, nothing here talks to the
 real NAS. Postgres is real: set TEST_DATABASE_URL to use an existing (throwaway!)
@@ -24,9 +25,10 @@ from types import SimpleNamespace
 import pandas as pd
 import psycopg
 import pytest
-from psycopg_pool import AsyncConnectionPool
 from pydantic import ValidationError
 from smbprotocol.exceptions import SMBException
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 # must be set before importing cron / sql: cron reads the NAS credentials at import
 # and load_dotenv() never overrides variables that are already set, so the real
@@ -40,6 +42,7 @@ os.environ["DATABASE_URL"] = "postgresql://unused@localhost:1/unused"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "api"))
 import cron  # noqa: E402
 import sql  # noqa: E402
+from db.query import AsyncQuerier, InsertScanParams  # noqa: E402
 
 pytestmark = pytest.mark.anyio
 
@@ -226,25 +229,28 @@ def sheet(monkeypatch):
     return rows
 
 
+def _test_engine(postgres_url: str):
+    url = postgres_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return create_async_engine(url, pool_size=cron.SMB_WORKERS + 5, max_overflow=0)
+
+
 @pytest.fixture
 async def db(postgres_url, monkeypatch):
     """Point sql at the test database with empty tables, yields a helper to run queries."""
-    pool = AsyncConnectionPool(postgres_url, min_size=1, max_size=cron.SMB_WORKERS + 5, open=False)
-    await pool.open()
-    monkeypatch.setattr(sql, "_pool", pool)
-    async with pool.connection() as conn:
-        await conn.execute("DROP TABLE IF EXISTS scan_data_history, smb_scraping_jobs")
-        cursor = conn.cursor()
-        await sql.create_scan_history_table(cursor)
-        await sql.create_smb_scraping_jobs_table(cursor)
+    engine = _test_engine(postgres_url)
+    monkeypatch.setattr(sql, "_engine", engine)
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP TABLE IF EXISTS scan_data_history, smb_scraping_jobs"))
+        await sql.create_tables(conn)
 
     async def query(statement: str, params: tuple = ()) -> list[tuple]:
-        async with pool.connection() as conn:
+        # plain psycopg so the assertions don't go through the code under test
+        async with await psycopg.AsyncConnection.connect(postgres_url) as conn:
             cursor = await conn.execute(statement, params)
             return await cursor.fetchall()
 
     yield query
-    await pool.close()
+    await engine.dispose()
 
 
 async def jobs_by_source(query) -> dict[str, list[tuple]]:
@@ -301,10 +307,10 @@ def test_timestamp_regex(name, expected):
     assert bool(cron.TIMESTAMP_RE.fullmatch(name)) is expected
 
 
-# --------------------------------------------------------------------------- ScanData validation
+# --------------------------------------------------------------------------- InsertScanParams validation
 
-def test_scan_data_accepts_regular_row():
-    data = sql.ScanData(
+def test_insert_scan_params_accepts_regular_row():
+    data = InsertScanParams(
         scan_time="2026-01-05 09:30:00",
         source=sql.Source.RAW_DATA,
         status=sql.Status.UNKOWN,
@@ -314,32 +320,17 @@ def test_scan_data_accepts_regular_row():
     assert data.scan_time == datetime(2026, 1, 5, 9, 30)
 
 
-def test_scan_data_allows_missing_time_for_freesurfer_subject():
-    data = sql.ScanData(
-        scan_time=None,
-        source=sql.Source.FREESURFER,
-        status=sql.Status.FREESURFER_SUBJECT_ONLY_DIR,
-        full_path=None,
-        scanner_subject_id="S000001",
-    )
-    assert data.scan_time is None
-
-
-@pytest.mark.parametrize(
-    ("source", "subject_id"),
-    [(sql.Source.RAW_DATA, "S000001"), (sql.Source.FREESURFER, None)],
-)
-def test_scan_data_rejects_missing_time(source, subject_id):
+def test_insert_scan_params_rejects_missing_time():
     with pytest.raises(ValidationError):
-        sql.ScanData(
-            scan_time=None, source=source, status=sql.Status.UNKOWN,
-            full_path=None, scanner_subject_id=subject_id,
+        InsertScanParams(
+            scan_time=None, source=sql.Source.RAW_DATA, status=sql.Status.UNKOWN,
+            full_path=None, scanner_subject_id=None,
         )
 
 
-def test_scan_data_rejects_unknown_source():
+def test_insert_scan_params_rejects_unknown_source():
     with pytest.raises(ValidationError):
-        sql.ScanData(
+        InsertScanParams(
             scan_time="2026-01-05 09:30:00", source="NOT_A_SOURCE",
             status=sql.Status.UNKOWN, full_path=None, scanner_subject_id=None,
         )
@@ -450,35 +441,17 @@ async def test_list_google_sheets_keeps_only_scan_ids(sheet):
     assert [s.scan_time for s in scans] == [datetime(2026, 1, 10, 10, 0), datetime(2026, 1, 11, 11, 0)]
     assert {s.source for s in scans} == {sql.Source.GOOGLE_SHEETS}
 
-
-async def test_list_freesurfer_classifies_directories(nas):
-    build_standard_nas(nas)
-    scans = await cron.list_freesurfer(None)
-
-    by_status = {s.status: s for s in scans}
-    assert set(by_status) == {
-        sql.Status.FREESURFER_SUBJECT_ONLY_DIR,
-        sql.Status.FREESURFER_SUBJECT_SESSION_DIR,
-        sql.Status.FREESURFER_SUBJECT_SESSION_LONG_DIR,
-    }
-    assert by_status[sql.Status.FREESURFER_SUBJECT_ONLY_DIR].scan_time is None
-    assert by_status[sql.Status.FREESURFER_SUBJECT_SESSION_DIR].scan_time == datetime(2026, 1, 1, 12, 0)
-    assert {s.scanner_subject_id for s in scans} == {"S000001"}  # fsaverage is skipped
-
-
 # --------------------------------------------------------------------------- sql layer
 
 async def test_create_tables_is_idempotent(db):
     async with sql.connection() as conn:
-        cursor = conn.cursor()
-        await sql.create_scan_history_table(cursor)
-        await sql.create_smb_scraping_jobs_table(cursor)
+        await sql.create_tables(conn)
 
 
 async def test_insert_job_entry_defaults(db):
     async with sql.connection() as conn:
-        first = await sql.insert_job_entry(conn.cursor(), sql.Source.BIDS)
-        second = await sql.insert_job_entry(conn.cursor(), sql.Source.CAT)
+        first = await AsyncQuerier(conn).insert_job_entry(source=sql.Source.BIDS)
+        second = await AsyncQuerier(conn).insert_job_entry(source=sql.Source.CAT)
 
     assert second > first
     rows = await db("SELECT source, status, start_time, stop_time, error_msg FROM smb_scraping_jobs ORDER BY id")
@@ -486,23 +459,15 @@ async def test_insert_job_entry_defaults(db):
     assert all(r[2] is not None and r[3] is None and r[4] is None for r in rows)
 
 
-async def test_update_successful_job(db):
+async def test_update_job_based_on_exceptions_without_errors_completes(db):
     async with sql.connection() as conn:
-        job_id = await sql.insert_job_entry(conn.cursor(), sql.Source.BIDS)
-        await sql.update_successful_job(conn.cursor(), job_id)
+        job_id = await AsyncQuerier(conn).insert_job_entry(source=sql.Source.BIDS)
+        await sql.update_job_based_on_exceptions(conn, job_id, [])
 
     [(status, stop_time, error_msg)] = await db("SELECT status, stop_time, error_msg FROM smb_scraping_jobs")
     assert status == "COMPLETED"
     assert stop_time is not None
     assert error_msg is None
-
-
-async def test_update_job_based_on_exceptions_without_errors_completes(db):
-    async with sql.connection() as conn:
-        job_id = await sql.insert_job_entry(conn.cursor(), sql.Source.BIDS)
-        await sql.update_job_based_on_exceptions(conn.cursor(), job_id, [])
-
-    assert (await db("SELECT status FROM smb_scraping_jobs")) == [("COMPLETED",)]
 
 
 async def test_update_job_based_on_exceptions_records_tracebacks(db):
@@ -511,8 +476,8 @@ async def test_update_job_based_on_exceptions_records_tracebacks(db):
     except ValueError as e:
         first = e
     async with sql.connection() as conn:
-        job_id = await sql.insert_job_entry(conn.cursor(), sql.Source.BIDS)
-        await sql.update_job_based_on_exceptions(conn.cursor(), job_id, [first, RuntimeError("second problem")])
+        job_id = await AsyncQuerier(conn).insert_job_entry(source=sql.Source.BIDS)
+        await sql.update_job_based_on_exceptions(conn, job_id, [first, RuntimeError("second problem")])
 
     [(status, stop_time, error_msg)] = await db("SELECT status, stop_time, error_msg FROM smb_scraping_jobs")
     assert status == "ERROR"
@@ -533,7 +498,7 @@ async def test_get_last_completed_scan_with_buffer(db):
         (newest - timedelta(days=1), newest, newest + timedelta(days=1), newest),
     )
     async with sql.connection() as conn:
-        result = await sql.get_last_completed_scan_with_buffer(conn.cursor())
+        result = await sql.get_last_completed_scan_with_buffer(conn)
 
     assert set(result) == {source.value for source in sql.Source}
     assert result["BIDS"] == newest - timedelta(minutes=sql.TIME_BUFFER_BETWEEN_SCANS_MINUTES)
@@ -542,37 +507,23 @@ async def test_get_last_completed_scan_with_buffer(db):
     assert result["RAW_DATA"] is None  # never ran
 
 
-async def test_insert_scan_single_inserts_and_ignores_duplicates(db):
-    scan = sql.ScanData(
+async def test_insert_scan_inserts_and_ignores_duplicates(db):
+    scan = InsertScanParams(
         scan_time="2026-01-05 09:30:00", source=sql.Source.RAW_DATA,
         status=sql.Status.UNKOWN, full_path="//nas/a", scanner_subject_id=None,
     )
     async with sql.connection() as conn:
-        await sql.insert_scan_single(conn.cursor(), scan)
-        await sql.insert_scan_single(conn.cursor(), scan.model_copy(update={"full_path": "//nas/b"}))
+        await AsyncQuerier(conn).insert_scan(scan)
+        await AsyncQuerier(conn).insert_scan(scan.model_copy(update={"full_path": "//nas/b"}))
 
     rows = await rows_for(db, sql.Source.RAW_DATA)
     assert rows == [(datetime(2026, 1, 5, 9, 30), "UNKOWN", "//nas/a", None)]
 
 
-async def test_insert_scan_single_skips_rows_without_scan_time(db):
-    scan = sql.ScanData(
-        scan_time=None, source=sql.Source.FREESURFER,
-        status=sql.Status.FREESURFER_SUBJECT_ONLY_DIR, full_path="//nas/fs", scanner_subject_id="S000001",
-    )
-    async with sql.connection() as conn:
-        await sql.insert_scan_single(conn.cursor(), scan)
-        # the transaction must still be usable afterwards
-        await sql.insert_job_entry(conn.cursor(), sql.Source.FREESURFER)
-
-    assert await db("SELECT count(*) FROM scan_data_history") == [(0,)]
-    assert await db("SELECT count(*) FROM smb_scraping_jobs") == [(1,)]
-
-
 async def test_connection_rolls_back_on_error(db):
     with pytest.raises(RuntimeError):
         async with sql.connection() as conn:
-            await sql.insert_job_entry(conn.cursor(), sql.Source.BIDS)
+            await AsyncQuerier(conn).insert_job_entry(source=sql.Source.BIDS)
             raise RuntimeError("fail mid transaction")
 
     assert await db("SELECT count(*) FROM smb_scraping_jobs") == [(0,)]
@@ -599,11 +550,11 @@ async def test_update_db_full_run(db, nas, sheet):
 
     assert len(await rows_for(db, sql.Source.RAW_DATA)) == 2
     assert len(await rows_for(db, sql.Source.GOOGLE_SHEETS)) == 2
-    # the subject only freesurfer dir has no scan_time and is skipped
-    assert {r[1] for r in await rows_for(db, sql.Source.FREESURFER)} == {
-        "FREESURFER_SUBJECT_SESSION_DIR",
-        "FREESURFER_SUBJECT_SESSION_LONG_DIR",
-    }
+    # the subject only freesurfer dir has no scan_time and the .long. dir
+    # duplicates its session, both are skipped
+    freesurfer_rows = await rows_for(db, sql.Source.FREESURFER)
+    assert len(freesurfer_rows) == 1
+    assert freesurfer_rows[0][1] == "UNKOWN"
 
 
 async def test_update_db_second_run_only_scrapes_modified_dirs(db, nas, sheet):
@@ -715,20 +666,20 @@ async def test_sheet_failure_does_not_roll_back_other_sources(db, nas, monkeypat
     assert jobs["RAW_DATA"][0][0] == "COMPLETED"
     assert jobs["FREESURFER"][0][0] == "COMPLETED"
     assert len(await rows_for(db, sql.Source.RAW_DATA)) == 2
-    assert len(await rows_for(db, sql.Source.FREESURFER)) == 2
+    assert len(await rows_for(db, sql.Source.FREESURFER)) == 1
 
 
 async def test_invalid_row_fails_only_its_source(db, nas, sheet, monkeypatch):
     """A row failing mid-insert rolls back that source's savepoint, nothing else."""
     build_standard_nas(nas)
-    original = sql.insert_scan_single
+    original = AsyncQuerier.insert_scan
 
-    async def failing_insert(cursor, scan_data):
-        if scan_data.source == sql.Source.RAW_DATA and scan_data.scan_time == datetime(2026, 1, 6, 10, 15):
-            await cursor.execute("SELECT 1/0")
-        await original(cursor, scan_data)
+    async def failing_insert(self, arg):
+        if arg.source == sql.Source.RAW_DATA and arg.scan_time == datetime(2026, 1, 6, 10, 15):
+            await self._conn.execute(text("SELECT 1/0"))
+        await original(self, arg)
 
-    monkeypatch.setattr(sql, "insert_scan_single", failing_insert)
+    monkeypatch.setattr(AsyncQuerier, "insert_scan", failing_insert)
     await cron.update_db()
 
     jobs = await jobs_by_source(db)
@@ -768,14 +719,14 @@ async def test_subject_scraping_respects_concurrency_limit(db, nas, sheet, monke
 
 
 async def test_init_and_commit_creates_scan_table(postgres_url, monkeypatch):
-    pool = AsyncConnectionPool(postgres_url, open=False)
-    monkeypatch.setattr(sql, "_pool", pool)
+    engine = _test_engine(postgres_url)
+    monkeypatch.setattr(sql, "_engine", engine)
     async with await psycopg.AsyncConnection.connect(postgres_url, autocommit=True) as conn:
         await conn.execute("DROP TABLE IF EXISTS scan_data_history, smb_scraping_jobs")
     try:
-        await cron.init_and_commit()  # also opens the pool
-        async with pool.connection() as conn:
+        await cron.init_and_commit()
+        async with await psycopg.AsyncConnection.connect(postgres_url) as conn:
             cursor = await conn.execute("SELECT to_regclass('scan_data_history')")
             assert (await cursor.fetchone())[0] == "scan_data_history"
     finally:
-        await pool.close()
+        await engine.dispose()

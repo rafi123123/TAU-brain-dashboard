@@ -6,4 +6,5 @@ pandas==3.0.5
 apscheduler==3.11.3
 pydantic==2.13.5
 smbprotocol==1.17.0
-psycopg[binary,pool]==3.3.6
+psycopg[binary]==3.3.6
+SQLAlchemy[asyncio]==2.1.4

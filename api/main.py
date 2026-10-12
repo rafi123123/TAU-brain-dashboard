@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down FastAPI application")
     scheduler.shutdown(wait=False)
     logger.info("Scheduler stopped")
-    await sql.close_pool()
+    await sql.close_engine()
 
 
 app = FastAPI(title="Missing Folders API", lifespan=lifespan)

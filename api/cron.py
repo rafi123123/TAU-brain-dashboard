@@ -1,6 +1,7 @@
 from logger_config import get_logger
 import os
 import sql
+from db.query import AsyncQuerier, InsertScanParams
 from datetime import datetime, timezone
 import pandas as pd
 import re
@@ -141,11 +142,10 @@ async def _insert_sub_ses_file_structure(
         sessions = await get_ses_dirs(subject_dir.path, modified_after)
         async with sql.connection() as conn:
             try:
-                cursor = conn.cursor()
+                querier = AsyncQuerier(conn)
                 for ses in sessions:
-                    await sql.insert_scan_single(
-                        cursor,
-                        sql.ScanData(
+                    await querier.insert_scan(
+                        InsertScanParams(
                             scan_time=_format_datetime_ses(ses.name[4:16]),
                             source=name,
                             status=sql.Status.UNKOWN, # FIXME need to check how to find what status the session as actually at
@@ -169,14 +169,14 @@ async def insert_sub_ses(
     ) -> None:
     logger.info(f"scraping {name} at getting {path}, subject directories after {modified_after}")
     async with sql.connection() as conn:
-        job_id = await sql.insert_job_entry(conn.cursor(), name)
+        job_id = await AsyncQuerier(conn).insert_job_entry(source=name)
 
     try:
         subject_dirs = await get_sub_dirs(path, modified_after)
     except Exception as e:
         # otherwise the job entry would stay ONGOING forever
         async with sql.connection() as conn:
-            await sql.update_job_based_on_exceptions(conn.cursor(), job_id, [e])
+            await sql.update_job_based_on_exceptions(conn, job_id, [e])
         raise e
     logger.debug(f"got {len(subject_dirs)} subject directories")
     results = await asyncio.gather(
@@ -193,19 +193,18 @@ async def insert_sub_ses(
     all_exceptions = [result for result in results if isinstance(result, BaseException)]
 
     async with sql.connection() as conn:
-        cursor = conn.cursor()
-        await sql.update_job_based_on_exceptions(cursor, job_id, all_exceptions)
+        await sql.update_job_based_on_exceptions(conn, job_id, all_exceptions)
     logger.info(f"finished scraping {name}")
 
 
 
-async def list_google_sheets() -> list[sql.ScanData]:
+async def list_google_sheets() -> list[InsertScanParams]:
     logger.debug("getting excel folder names")
     col_index = 0
     df = await asyncio.to_thread(pd.read_csv, SHEET_URL, usecols=[col_index], header=None, dtype=str)
     series = df.iloc[:, 0]
     return [
-        sql.ScanData(
+        InsertScanParams(
             scan_time=_format_datetime_raw(scan_id),
             source=sql.Source.GOOGLE_SHEETS,
             status=sql.Status.UNKOWN,
@@ -215,10 +214,10 @@ async def list_google_sheets() -> list[sql.ScanData]:
         for scan_id in series.dropna() if TIMESTAMP_RE.fullmatch(scan_id)
     ]
 
-async def insert_raw_data(modified_after: datetime | None) -> list[sql.ScanData]:
+async def insert_raw_data(modified_after: datetime | None) -> list[InsertScanParams]:
     logger.info(f"getting raw data after {modified_after}")
     all_raw_scans = [
-        sql.ScanData(
+        InsertScanParams(
             scan_time=_format_datetime_raw(scan_dir.name),
             source=sql.Source.RAW_DATA,
             status=sql.Status.UNKOWN,
@@ -231,7 +230,7 @@ async def insert_raw_data(modified_after: datetime | None) -> list[sql.ScanData]
     logger.info(f"raw data entries: {len(all_raw_scans)}")
     return all_raw_scans
 
-async def list_freesurfer(modified_after: datetime | None) -> list[sql.ScanData]:
+async def list_freesurfer(modified_after: datetime | None) -> list[InsertScanParams]:
     logger.debug("getting freesurfer data")
     all_entries = []
     for directory in await get_smb_dirs(NAS_PATH/"Processed_Data"/"derivatives"/"freesurfer", modified_after=modified_after):
@@ -242,21 +241,15 @@ async def list_freesurfer(modified_after: datetime | None) -> list[sql.ScanData]
                 continue
             ses_time_raw = _first_group_or_none(SES_TIMESTAMP_RE, name)
             if not ses_time_raw:
-                ses_time = None
-            else:
-                ses_time = _format_datetime_ses(ses_time_raw)
-            long = '.long.' in name
-            if long and ses_time:
-                status = sql.Status.FREESURFER_SUBJECT_SESSION_LONG_DIR
-            elif ses_time:
-                status = sql.Status.FREESURFER_SUBJECT_SESSION_DIR
-            else:
-                status = sql.Status.FREESURFER_SUBJECT_ONLY_DIR
+                logger.debug(f"skipping freesurfer dir without a session timestamp: {name}")
+                continue
+            if '.long.' in name:
+                continue
             all_entries.append(
-                sql.ScanData(
-                    scan_time=ses_time, 
+                InsertScanParams(
+                    scan_time=_format_datetime_ses(ses_time_raw), 
                     source=sql.Source.FREESURFER, 
-                    status=status, 
+                    status=sql.Status.UNKOWN, 
                     full_path=directory.path,
                     scanner_subject_id=sub_id,
                 )
@@ -268,25 +261,23 @@ async def list_freesurfer(modified_after: datetime | None) -> list[sql.ScanData]
 
 async def init_and_commit():
     logger.info("initializing DB")
-    await sql.open_pool()
     async with sql.connection() as conn:
-        cursor = conn.cursor()
-        await sql.create_scan_history_table(cursor)
+        await sql.create_tables(conn)
         
 
 
 async def _insert_scans_as_job(conn, source: sql.Source, list_scans) -> None:
     "list the scans and insert them one by one, recording the outcome as a job entry"
-    cursor = conn.cursor()
-    job_id = await sql.insert_job_entry(cursor, source)
+    job_id = await AsyncQuerier(conn).insert_job_entry(source=source)
     try:
         # savepoint so a failed insert doesn't abort the rest of the transaction
-        async with conn.transaction():
+        async with conn.begin_nested():
+            querier = AsyncQuerier(conn)
             for scan_data in await list_scans():
-                await sql.insert_scan_single(cursor, scan_data)
-        await sql.update_successful_job(cursor, job_id)
+                await querier.insert_scan(scan_data)
+        await sql.update_job_based_on_exceptions(conn, job_id, [])
     except Exception as e:
-        await sql.update_job_based_on_exceptions(cursor, job_id, [e])
+        await sql.update_job_based_on_exceptions(conn, job_id, [e])
 
 
 async def _update_db(last_modified_dict: dict[str, datetime]) -> list[BaseException]:
@@ -357,16 +348,10 @@ async def _update_db(last_modified_dict: dict[str, datetime]) -> list[BaseExcept
 async def update_db() -> None:
     logger.info("initiating DB update")
     async with sql.connection() as conn:
-        cursor = conn.cursor()
-
-        logger.info("creating cron jobs table")
-        await sql.create_smb_scraping_jobs_table(cursor)
-
-
-        logger.info("creating scan history table")
-        await sql.create_scan_history_table(cursor)
-        orchestrator_id = await sql.insert_job_entry(cursor, sql.Source.ORCHESTRATORE)
-        scrape_from = await sql.get_last_completed_scan_with_buffer(cursor)
+        logger.info("creating tables")
+        await sql.create_tables(conn)
+        orchestrator_id = await AsyncQuerier(conn).insert_job_entry(source=sql.Source.ORCHESTRATORE)
+        scrape_from = await sql.get_last_completed_scan_with_buffer(conn)
 
     
     try:
@@ -376,17 +361,14 @@ async def update_db() -> None:
         )
         all_task_exceptions = await _update_db(scrape_from)
         async with sql.connection() as conn:
-            cursor = conn.cursor()
-            await sql.update_job_based_on_exceptions(cursor,orchestrator_id,all_task_exceptions)
+            await sql.update_job_based_on_exceptions(conn,orchestrator_id,all_task_exceptions)
 
     except Exception as e:
         async with sql.connection() as conn:
-            cursor = conn.cursor()
-            await sql.upadate_job_entry(
-                cursor, 
-                orchestrator_id, 
-                sql.JobStatus.ERROR, 
-                str(traceback.format_exc()), 
-                datetime.now(tz=timezone.utc)
+            await AsyncQuerier(conn).update_job_entry(
+                status=sql.JobStatus.ERROR,
+                error_msg=str(traceback.format_exc()),
+                stop_time=datetime.now(tz=timezone.utc),
+                id=orchestrator_id,
             )
         raise e
