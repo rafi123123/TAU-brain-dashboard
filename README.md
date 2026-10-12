@@ -48,7 +48,18 @@ docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -v "$PWD":/src -w /src sqlc/sq
 ```
 
 Use `diff` instead of `generate` to check the generated code is up to date.
-`api/sql.py` wraps the generated querier, and runs `schema.sql` on startup to create the tables.
+`api/sql.py` wraps the generated querier. Note that `schema.sql` is only the input for sqlc,
+the actual database schema is managed by alembic (below).
+
+## Database migrations (alembic)
+
+The schema is created and evolved with [alembic](https://alembic.sqlalchemy.org): the api
+container runs `alembic upgrade head` on startup (see `api/Dockerfile`), so migrations are
+applied automatically before the app serves. To change the schema, edit `api/db/schema.sql`
+(so sqlc stays in sync), write a matching migration with
+`alembic -c api/alembic.ini revision -m "describe the change"` (run from the project root),
+fill in its `upgrade()`/`downgrade()` with the DDL, and regenerate the sqlc code. To apply
+migrations manually, run `alembic -c api/alembic.ini upgrade head` with `DATABASE_URL` set.
 
 ## Tests
 

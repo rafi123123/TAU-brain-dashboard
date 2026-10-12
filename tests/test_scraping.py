@@ -25,6 +25,8 @@ from types import SimpleNamespace
 import pandas as pd
 import psycopg
 import pytest
+from alembic import command as alembic_command
+from alembic.config import Config as AlembicConfig
 from pydantic import ValidationError
 from smbprotocol.exceptions import SMBException
 from sqlalchemy import text
@@ -39,7 +41,8 @@ os.environ["NAS_PASSWORD"] = "fake-password"
 os.environ["SHEET_URL"] = "http://sheet.invalid/export?format=csv"
 os.environ["DATABASE_URL"] = "postgresql://unused@localhost:1/unused"
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "api"))
+API_DIR = Path(__file__).resolve().parent.parent / "api"
+sys.path.insert(0, str(API_DIR))
 import cron  # noqa: E402
 import sql  # noqa: E402
 from db.query import AsyncQuerier, InsertScanParams  # noqa: E402
@@ -152,6 +155,13 @@ def anyio_backend():
     return "asyncio"
 
 
+def run_migrations(postgres_url: str) -> None:
+    """Create the schema the same way the container does: alembic upgrade head."""
+    config = AlembicConfig(str(API_DIR / "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", postgres_url)
+    alembic_command.upgrade(config, "head")
+
+
 def _wait_for_postgres(url: str, timeout: float = 60) -> None:
     deadline = time.monotonic() + timeout
     while True:
@@ -240,8 +250,8 @@ async def db(postgres_url, monkeypatch):
     engine = _test_engine(postgres_url)
     monkeypatch.setattr(sql, "_engine", engine)
     async with engine.begin() as conn:
-        await conn.execute(text("DROP TABLE IF EXISTS scan_data_history, smb_scraping_jobs"))
-        await sql.create_tables(conn)
+        await conn.execute(text("DROP TABLE IF EXISTS scan_data_history, smb_scraping_jobs, alembic_version"))
+    await asyncio.to_thread(run_migrations, postgres_url)
 
     async def query(statement: str, params: tuple = ()) -> list[tuple]:
         # plain psycopg so the assertions don't go through the code under test
@@ -443,9 +453,11 @@ async def test_list_google_sheets_keeps_only_scan_ids(sheet):
 
 # --------------------------------------------------------------------------- sql layer
 
-async def test_create_tables_is_idempotent(db):
+async def test_migrations_apply_to_a_pre_alembic_database(db, postgres_url):
+    """The initial migration must tolerate tables and enum types that already exist."""
     async with sql.connection() as conn:
-        await sql.create_tables(conn)
+        await conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
+    await asyncio.to_thread(run_migrations, postgres_url)
 
 
 async def test_insert_job_entry_defaults(db):
@@ -718,15 +730,11 @@ async def test_subject_scraping_respects_concurrency_limit(db, nas, sheet, monke
     assert len(await rows_for(db, sql.Source.BIDS)) == 20
 
 
-async def test_init_and_commit_creates_scan_table(postgres_url, monkeypatch):
-    engine = _test_engine(postgres_url)
-    monkeypatch.setattr(sql, "_engine", engine)
+async def test_alembic_upgrade_creates_tables(postgres_url):
     async with await psycopg.AsyncConnection.connect(postgres_url, autocommit=True) as conn:
-        await conn.execute("DROP TABLE IF EXISTS scan_data_history, smb_scraping_jobs")
-    try:
-        await cron.init_and_commit()
-        async with await psycopg.AsyncConnection.connect(postgres_url) as conn:
-            cursor = await conn.execute("SELECT to_regclass('scan_data_history')")
-            assert (await cursor.fetchone())[0] == "scan_data_history"
-    finally:
-        await engine.dispose()
+        await conn.execute("DROP TABLE IF EXISTS scan_data_history, smb_scraping_jobs, alembic_version")
+    await asyncio.to_thread(run_migrations, postgres_url)
+    async with await psycopg.AsyncConnection.connect(postgres_url) as conn:
+        for table in ("scan_data_history", "smb_scraping_jobs", "alembic_version"):
+            cursor = await conn.execute("SELECT to_regclass(%s)", (table,))
+            assert (await cursor.fetchone())[0] == table

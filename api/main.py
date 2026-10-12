@@ -1,6 +1,6 @@
 from logger_config import get_logger
 from fastapi import FastAPI, BackgroundTasks
-from cron import update_db, init_and_commit
+from cron import update_db
 import sql
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
@@ -13,7 +13,6 @@ scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up FastAPI application")
-    await init_and_commit()
 
     scheduler.add_job(
         update_db,

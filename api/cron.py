@@ -259,13 +259,6 @@ async def list_freesurfer(modified_after: datetime | None) -> list[InsertScanPar
 
 
 
-async def init_and_commit():
-    logger.info("initializing DB")
-    async with sql.connection() as conn:
-        await sql.create_tables(conn)
-        
-
-
 async def _insert_scans_as_job(conn, source: sql.Source, list_scans) -> None:
     "list the scans and insert them one by one, recording the outcome as a job entry"
     job_id = await AsyncQuerier(conn).insert_job_entry(source=source)
@@ -348,8 +341,6 @@ async def _update_db(last_modified_dict: dict[str, datetime]) -> list[BaseExcept
 async def update_db() -> None:
     logger.info("initiating DB update")
     async with sql.connection() as conn:
-        logger.info("creating tables")
-        await sql.create_tables(conn)
         orchestrator_id = await AsyncQuerier(conn).insert_job_entry(source=sql.Source.ORCHESTRATORE)
         scrape_from = await sql.get_last_completed_scan_with_buffer(conn)
 

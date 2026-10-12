@@ -1,6 +1,6 @@
--- CREATE TYPE has no IF NOT EXISTS so create_tables() wraps these statements in a
--- duplicate_object guard at runtime (sqlc can't parse DO blocks, so keep them plain here).
--- NOTE: comments in this file must not contain semicolons, create_tables() splits on them
+-- This file is only the source sqlc generates the db package from, it is NOT
+-- applied to the database. The schema is created by alembic (api/alembic/versions),
+-- so every change here needs a matching alembic migration.
 CREATE TYPE source AS ENUM (
     'QSIPREP',
     'QSIRECON',

@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 import os
 import traceback
-from pathlib import Path
 from db.query import AsyncQuerier
 # the enums are generated from the postgres types in schema.sql
 from db.models import JobStatus, Source, Status
@@ -15,24 +14,7 @@ load_dotenv()
 TIME_BUFFER_BETWEEN_SCANS_MINUTES = int(os.getenv("TIME_BUFFER_BETWEEN_SCANS_MINUTES", 15))
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/scan_data")
 DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", 25))
-# also the schema sqlc generates the db package from (see sqlc.yaml)
-SCHEMA_PATH = Path(__file__).resolve().parent / "db" / "schema.sql"
 
-
-async def create_tables(conn: AsyncConnection) -> None:
-    for statement in SCHEMA_PATH.read_text().split(";"):
-        lines = [l for l in statement.splitlines() if not l.lstrip().startswith("--")]
-        statement = "\n".join(lines)
-        if not statement.strip():
-            continue
-        if statement.lstrip().upper().startswith("CREATE TYPE"):
-            # CREATE TYPE has no IF NOT EXISTS, and sqlc can't parse DO blocks
-            # in schema.sql, so the duplicate guard is added here instead
-            statement = (
-                f"DO $$ BEGIN {statement};"
-                " EXCEPTION WHEN duplicate_object THEN NULL; END $$"
-            )
-        await conn.exec_driver_sql(statement)
 
 async def update_job_based_on_exceptions(conn: AsyncConnection, job_id: int, all_exc: list[Exception | None]) -> None:
     querier = AsyncQuerier(conn)
