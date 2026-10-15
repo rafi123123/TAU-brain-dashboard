@@ -20,17 +20,21 @@ def get_logger(logger_name: str = None) -> logging.Logger:
 
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setLevel(LOG_LEVEL)
+
+    handlers = [stream_handler]
+
     
     if LOG_TO_FILE:
             file_handler = logging.FileHandler(FILE_LOG_NAME)
             file_handler.setLevel(LOG_LEVEL)
+            handlers.append(file_handler)
 
     # Root logger level MUST be set no higher than the handler levels so messages aren't discarded globally
     logging.basicConfig(
         level=LOG_LEVEL,
         format=log_format,
         datefmt=date_format,
-        handlers=[stream_handler, file_handler],
+        handlers=handlers,
         force=True
     )
 
