@@ -92,8 +92,20 @@ applied automatically before the app serves. To change the schema:
    (run from the project root) and fill in its `upgrade()`/`downgrade()` with the DDL.
 3. Regenerate the sqlc code.
 
-To apply migrations manually, run `alembic -c api/alembic.ini upgrade head` with
-`DATABASE_URL` set.
+**Run only the migrations and check they worked** (without starting the app;
+`docker compose run` starts postgres automatically):
+
+```sh
+docker compose run --build --rm api alembic upgrade head
+docker compose exec postgres psql -U scan_data -d scan_data \
+    -c "SELECT version_num FROM alembic_version" -c "\d scan_data_history"
+```
+
+The first command applies all pending migrations, the second prints the applied
+revision (compare with `ls api/alembic/versions/`) and the resulting table.
+
+To apply migrations from outside docker, run `alembic -c api/alembic.ini upgrade head`
+with `DATABASE_URL` set.
 
 ## Tests
 

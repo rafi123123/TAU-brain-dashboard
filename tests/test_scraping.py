@@ -31,6 +31,7 @@ from pydantic import ValidationError
 from smbprotocol.exceptions import SMBException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.exc import IntegrityError
 
 # must be set before importing cron / sql: cron reads the NAS credentials at import
 # and load_dotenv() never overrides variables that are already set, so the real
@@ -73,11 +74,11 @@ def nas_path(relative: str) -> str:
 class FakeEntry:
     """Mimics the parts of smbclient.SMBDirEntry that cron uses."""
 
-    def __init__(self, parent: str, name: str, mtime: datetime, is_dir: bool):
+    def __init__(self, parent: str, name: str, mtime: datetime, creation_time: datetime, is_dir: bool):
         self.name = name
         self.path = f"{parent}/{name}"
         self._is_dir = is_dir
-        self._dir_info = SimpleNamespace(last_write_time=mtime)
+        self._dir_info = SimpleNamespace(last_write_time=mtime, creation_time=creation_time)
 
     def is_dir(self) -> bool:
         return self._is_dir
@@ -95,8 +96,15 @@ class FakeNAS:
         self._concurrent: dict[str, int] = {}
         self.max_concurrent: dict[str, int] = {}
 
-    def add(self, parent: str, name: str, *, mtime: datetime = OLD_MTIME, is_dir: bool = True) -> str:
-        entry = FakeEntry(parent, name, mtime, is_dir)
+    def add(
+            self, 
+            parent: str, 
+            name: str, *, 
+            mtime: datetime = OLD_MTIME, 
+            creation_time: datetime = OLD_MTIME,
+            is_dir: bool = True
+        ) -> str:
+        entry = FakeEntry(parent, name, mtime, creation_time, is_dir)
         self.tree.setdefault(parent, []).append(entry)
         self.tree.setdefault(entry.path, [])
         return entry.path
@@ -322,20 +330,31 @@ def test_timestamp_regex(name, expected):
 def test_insert_scan_params_accepts_regular_row():
     data = InsertScanParams(
         scan_time="2026-01-05 09:30:00",
+        creation_time="2025-02-06 10:31:00",
         source=sql.Source.RAW_DATA,
         status=sql.Status.UNKOWN,
         full_path="//nas/Raw_Data/20260105_0930",
         scanner_subject_id=None,
     )
     assert data.scan_time == datetime(2026, 1, 5, 9, 30)
+    assert data.creation_time == datetime(2025, 2, 6, 10, 31)
 
 
 def test_insert_scan_params_rejects_missing_time():
-    with pytest.raises(ValidationError):
-        InsertScanParams(
-            scan_time=None, source=sql.Source.RAW_DATA, status=sql.Status.UNKOWN,
-            full_path=None, scanner_subject_id=None,
-        )
+    for source in sql.Source:
+        with pytest.raises(ValidationError):
+            InsertScanParams(
+                scan_time=None, source=source, status=sql.Status.UNKOWN,
+                full_path=None, scanner_subject_id=None, creation_time="2026-01-05 09:30:00"
+            )
+
+def test_insert_scan_params_rejects_missing_creation_time():
+    for source in sql.Source:
+        with pytest.raises(ValidationError):
+            InsertScanParams(
+                scan_time="2026-01-05 09:30:00", source=source, status=sql.Status.UNKOWN,
+                full_path=None, scanner_subject_id=None, creation_time=None
+            )
 
 
 def test_insert_scan_params_rejects_unknown_source():
@@ -523,6 +542,7 @@ async def test_insert_scan_inserts_and_ignores_duplicates(db):
     scan = InsertScanParams(
         scan_time="2026-01-05 09:30:00", source=sql.Source.RAW_DATA,
         status=sql.Status.UNKOWN, full_path="//nas/a", scanner_subject_id=None,
+        creation_time="2026-01-05 09:30:00"
     )
     async with sql.connection() as conn:
         await AsyncQuerier(conn).insert_scan(scan)
@@ -530,6 +550,7 @@ async def test_insert_scan_inserts_and_ignores_duplicates(db):
 
     rows = await rows_for(db, sql.Source.RAW_DATA)
     assert rows == [(datetime(2026, 1, 5, 9, 30), "UNKOWN", "//nas/a", None)]
+
 
 
 async def test_connection_rolls_back_on_error(db):
@@ -738,3 +759,4 @@ async def test_alembic_upgrade_creates_tables(postgres_url):
         for table in ("scan_data_history", "smb_scraping_jobs", "alembic_version"):
             cursor = await conn.execute("SELECT to_regclass(%s)", (table,))
             assert (await cursor.fetchone())[0] == table
+

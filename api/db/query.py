@@ -36,14 +36,16 @@ INSERT INTO scan_data_history (
     source,
     status,
     full_path,
-    scanner_subject_id
+    scanner_subject_id,
+    creation_time
 )
 VALUES (
     :p1,
     :p2,
     :p3,
     :p4,
-    :p5
+    :p5,
+    :p6
 )
 ON CONFLICT (scan_time, source, status) DO NOTHING
 """
@@ -55,6 +57,7 @@ class InsertScanParams(pydantic.BaseModel):
     status: models.Status
     full_path: Optional[str]
     scanner_subject_id: Optional[str]
+    creation_time: datetime.datetime
 
 
 UPDATE_JOB_ENTRY = """-- name: update_job_entry \\:exec
@@ -89,6 +92,7 @@ class AsyncQuerier:
             "p3": arg.status,
             "p4": arg.full_path,
             "p5": arg.scanner_subject_id,
+            "p6": arg.creation_time,
         })
 
     async def update_job_entry(self, *, status: models.JobStatus, error_msg: Optional[str], stop_time: Optional[datetime.datetime], id: int) -> None:

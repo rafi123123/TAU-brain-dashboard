@@ -14,6 +14,8 @@ import asyncio
 from typing import Callable
 import random
 import traceback
+from functools import partial
+
 load_dotenv()
 logger = get_logger(__name__)
 
@@ -43,16 +45,6 @@ def _first_group_or_none(regex: re.Pattern[str], string: str) -> str | None:
         return regex.search(string).group(1)
     except:
         return None
-    
-
-def log_exceptions(func):
-    async def wrapper(*args, **kwargs):
-        try:
-            return await func(*args, **kwargs)
-        except Exception as e:
-            logger.exception(f"--- Exception in task '{func.__name__}' with args: {args} {kwargs}---")
-            raise e
-    return wrapper
 
 async def _exponential_decay(
         func: Callable, 
@@ -131,7 +123,6 @@ async def get_ses_dirs(path: str, modified_after: datetime) -> list[SMBDirEntry]
 async def get_sub_dirs(path: str, modified_after: datetime) -> list[SMBDirEntry]:
     return await get_smb_dirs(path, modified_after, "sub-*")
 
-@log_exceptions
 async def _insert_sub_ses_file_structure(
         subject_dir: SMBDirEntry, 
         modified_after: datetime | None,
@@ -151,6 +142,7 @@ async def _insert_sub_ses_file_structure(
                             status=sql.Status.UNKOWN, # FIXME need to check how to find what status the session as actually at
                             full_path=ses.path,
                             scanner_subject_id=subject_dir.name[4:16],
+                            creation_time=ses._dir_info.creation_time
                         )
                     )
             except Exception as e:
@@ -160,7 +152,6 @@ async def _insert_sub_ses_file_structure(
 
 
 
-@log_exceptions
 async def insert_sub_ses(
         *,
         path: str,
@@ -210,6 +201,7 @@ async def list_google_sheets() -> list[InsertScanParams]:
             status=sql.Status.UNKOWN,
             full_path=None,
             scanner_subject_id=None,
+            creation_time=_format_datetime_raw(scan_id)
         ) 
         for scan_id in series.dropna() if TIMESTAMP_RE.fullmatch(scan_id)
     ]
@@ -223,6 +215,7 @@ async def insert_raw_data(modified_after: datetime | None) -> list[InsertScanPar
             status=sql.Status.UNKOWN,
             full_path=scan_dir.path,
             scanner_subject_id=None,
+            creation_time=scan_dir._dir_info.creation_time
         ) 
         for scan_dir in await get_smb_dirs(NAS_PATH/"Raw_Data", modified_after) 
         if TIMESTAMP_RE.fullmatch(scan_dir.name)
@@ -252,6 +245,7 @@ async def list_freesurfer(modified_after: datetime | None) -> list[InsertScanPar
                     status=sql.Status.UNKOWN, 
                     full_path=directory.path,
                     scanner_subject_id=sub_id,
+                    creation_time=directory._dir_info.creation_time
                 )
             )
     return all_entries

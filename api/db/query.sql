@@ -18,13 +18,15 @@ INSERT INTO scan_data_history (
     source,
     status,
     full_path,
-    scanner_subject_id
+    scanner_subject_id,
+    creation_time
 )
 VALUES (
     sqlc.arg(scan_time),
     sqlc.arg(source),
     sqlc.arg(status),
     sqlc.narg(full_path),
-    sqlc.narg(scanner_subject_id)
+    sqlc.narg(scanner_subject_id),
+    sqlc.arg(creation_time)
 )
 ON CONFLICT (scan_time, source, status) DO NOTHING;

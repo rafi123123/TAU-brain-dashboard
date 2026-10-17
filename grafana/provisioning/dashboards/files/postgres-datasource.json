@@ -4,12 +4,12 @@
   "metadata": {
     "name": "adv6tgf",
     "namespace": "default",
-    "uid": "c03670ca-02ca-470d-b665-10c102d58163",
-    "resourceVersion": "1790601763646020",
-    "generation": 4,
-    "creationTimestamp": "2026-09-24T09:54:03Z",
+    "uid": "8a413ab6-04d6-41c4-a30d-e47f2b30f49b",
+    "resourceVersion": "1792258823709981",
+    "generation": 3,
+    "creationTimestamp": "2026-10-17T17:08:26Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "4382958751232000"
+      "grafana.app/deprecatedInternalID": "3819997708996608"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
@@ -17,11 +17,11 @@
       "grafana.app/managerAllowsEdits": "true",
       "grafana.app/managerId": "Default Dashboards",
       "grafana.app/saved-from-ui": "Grafana v13.2.1 (56cd3e9288)",
-      "grafana.app/sourceChecksum": "2801ce6b49f9adf9bc606ddc78d5cb43",
-      "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/files/sqlite-datasource.json",
-      "grafana.app/sourceTimestamp": "1790595149000",
-      "grafana.app/updatedBy": "user:efz7knsfan8cgb",
-      "grafana.app/updatedTimestamp": "2026-09-28T13:22:43Z"
+      "grafana.app/sourceChecksum": "6079d7a111a1c9a521603c444000fcc0",
+      "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/files/postgres-datasource.json",
+      "grafana.app/sourceTimestamp": "1790601778000",
+      "grafana.app/updatedBy": "user:cg1ipwwvmacjkd",
+      "grafana.app/updatedTimestamp": "2026-10-17T17:40:23Z"
     }
   },
   "spec": {
@@ -75,7 +75,24 @@
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT\n    scan_time AS time,\n    source AS metric,\n    1 AS value\nFROM scan_data_history\nWHERE scan_time IS NOT NULL\nORDER BY scan_time;"
+                        "rawSql": "SELECT\n    creation_time AS time,\n    source AS metric,\n    1 AS value\nFROM scan_data_history\nWHERE scan_time IS NOT NULL\nORDER BY scan_time;",
+                        "sql": {
+                          "columns": [
+                            {
+                              "parameters": [],
+                              "type": "function"
+                            }
+                          ],
+                          "groupBy": [
+                            {
+                              "property": {
+                                "type": "string"
+                              },
+                              "type": "groupBy"
+                            }
+                          ],
+                          "limit": 50
+                        }
                       }
                     },
                     "refId": "A",
@@ -610,7 +627,7 @@
               "x": 0,
               "y": 28,
               "width": 24,
-              "height": 12,
+              "height": 14,
               "element": {
                 "kind": "ElementReference",
                 "name": "panel-3"

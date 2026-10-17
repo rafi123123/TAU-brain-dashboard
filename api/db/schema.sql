@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS scan_data_history (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     scraped_at TIMESTAMPTZ DEFAULT now(),
     scan_time TIMESTAMP NOT NULL,
+    creation_time TIMESTAMP NOT NULL,
     source source NOT NULL,
     status status NOT NULL,
     full_path TEXT,

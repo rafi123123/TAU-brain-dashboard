@@ -34,6 +34,7 @@ class ScanDataHistory(pydantic.BaseModel):
     id: int
     scraped_at: Optional[datetime.datetime]
     scan_time: datetime.datetime
+    creation_time: datetime.datetime
     source: Source
     status: Status
     full_path: Optional[str]
