@@ -14,7 +14,6 @@ import asyncio
 from typing import Callable
 import random
 import traceback
-from functools import partial
 
 load_dotenv()
 logger = get_logger(__name__)
@@ -26,7 +25,7 @@ SHEET_URL = os.getenv(
     "SHEET_URL",
     "https://docs.google.com/spreadsheets/d/1YvhfZ8k3xafsN1ijtOl1uESG4w48-2jVnnWQM-s_OQM/export?format=csv",
 )
-SMB_WORKERS = int(os.getenv("SMB_WORKERS", 20))
+SMB_WORKERS = int(os.getenv("SMB_WORKERS", 30))
 MAX_SMB_QUERY_ATTEMPTS = int(os.getenv("SMB_QUERY_ATTEMPTS", 50))
 MAX_SMB_SLEEP = int(os.getenv("SMB_MAX_SLEEP", 20))
 
@@ -90,7 +89,7 @@ def _get_smb_dirs(path: str, modified_after: datetime | None, search: str= "*") 
             continue
         elif modified_after and last_time_write < modified_after.replace(tzinfo=timezone.utc):
             logger.debug(
-                f"skipping {ses.name}, "
+                f"skipping {ses.path}, "
                 f"last_write_time: {ses._dir_info.last_write_time} "
                 f"which is before: {modified_after}"
             )
@@ -253,18 +252,19 @@ async def list_freesurfer(modified_after: datetime | None) -> list[InsertScanPar
 
 
 
-async def _insert_scans_as_job(conn, source: sql.Source, list_scans) -> None:
+async def _insert_scans_as_job(source: sql.Source, list_scans) -> None:
     "list the scans and insert them one by one, recording the outcome as a job entry"
-    job_id = await AsyncQuerier(conn).insert_job_entry(source=source)
-    try:
-        # savepoint so a failed insert doesn't abort the rest of the transaction
-        async with conn.begin_nested():
-            querier = AsyncQuerier(conn)
-            for scan_data in await list_scans():
-                await querier.insert_scan(scan_data)
-        await sql.update_job_based_on_exceptions(conn, job_id, [])
-    except Exception as e:
-        await sql.update_job_based_on_exceptions(conn, job_id, [e])
+    async with sql.connection() as conn:
+        job_id = await AsyncQuerier(conn).insert_job_entry(source=source)
+        try:
+            # savepoint so a failed insert doesn't abort the rest of the transaction
+            async with conn.begin_nested():
+                querier = AsyncQuerier(conn)
+                for scan_data in await list_scans():
+                    await querier.insert_scan(scan_data)
+            await sql.update_job_based_on_exceptions(conn, job_id, [])
+        except Exception as e:
+            await sql.update_job_based_on_exceptions(conn, job_id, [e])
 
 
 async def _update_db(last_modified_dict: dict[str, datetime]) -> list[BaseException]:
@@ -289,13 +289,6 @@ async def _update_db(last_modified_dict: dict[str, datetime]) -> list[BaseExcept
             name=sql.Source.TABULAR.value,
             modified_after=last_modified_dict[sql.Source.TABULAR.value]
         ),
-        return_exceptions=True,
-    )
-
-    # trying to prevent smb threading errors
-    worker_exceptions += results
-
-    results = await asyncio.gather(
         insert_sub_ses(
             path=NAS_PATH/"Bids",
             name=sql.Source.BIDS.value,
@@ -311,23 +304,22 @@ async def _update_db(last_modified_dict: dict[str, datetime]) -> list[BaseExcept
             name=sql.Source.TABULAR_CAT12.value,
             modified_after=last_modified_dict[sql.Source.TABULAR_CAT12.value]
         ),
+        _insert_scans_as_job(
+            sql.Source.RAW_DATA,
+            lambda: insert_raw_data(last_modified_dict[sql.Source.RAW_DATA.value])
+        ),
+        _insert_scans_as_job(sql.Source.GOOGLE_SHEETS, list_google_sheets),
+        _insert_scans_as_job(
+            sql.Source.FREESURFER,
+            lambda: list_freesurfer(last_modified_dict[sql.Source.FREESURFER.value])
+        ),
         return_exceptions=True,
     )
 
     worker_exceptions += results
 
-    async with sql.connection() as conn:
-        await _insert_scans_as_job(
-            conn,
-            sql.Source.RAW_DATA,
-            lambda: insert_raw_data(last_modified_dict[sql.Source.RAW_DATA.value])
-        )
-        await _insert_scans_as_job(conn, sql.Source.GOOGLE_SHEETS, list_google_sheets)
-        await _insert_scans_as_job(
-            conn,
-            sql.Source.FREESURFER,
-            lambda: list_freesurfer(last_modified_dict[sql.Source.FREESURFER.value])
-        )
+    
+
 
     logger.info("finished update")
     return [e for e in worker_exceptions if isinstance(e, BaseException)]
