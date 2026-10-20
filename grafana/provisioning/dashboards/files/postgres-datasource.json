@@ -4,12 +4,12 @@
   "metadata": {
     "name": "adv6tgf",
     "namespace": "default",
-    "uid": "8a413ab6-04d6-41c4-a30d-e47f2b30f49b",
-    "resourceVersion": "1792258823709981",
+    "uid": "5e3dbd07-25c4-4566-9dea-7b3906d99251",
+    "resourceVersion": "1792500539051006",
     "generation": 3,
-    "creationTimestamp": "2026-10-17T17:08:26Z",
+    "creationTimestamp": "2026-10-17T17:55:53Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "3819997708996608"
+      "grafana.app/deprecatedInternalID": "3831937983918080"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
@@ -17,11 +17,11 @@
       "grafana.app/managerAllowsEdits": "true",
       "grafana.app/managerId": "Default Dashboards",
       "grafana.app/saved-from-ui": "Grafana v13.2.1 (56cd3e9288)",
-      "grafana.app/sourceChecksum": "6079d7a111a1c9a521603c444000fcc0",
+      "grafana.app/sourceChecksum": "f2439c337bf9e0329d4172deb21d8d78",
       "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/files/postgres-datasource.json",
-      "grafana.app/sourceTimestamp": "1790601778000",
-      "grafana.app/updatedBy": "user:cg1ipwwvmacjkd",
-      "grafana.app/updatedTimestamp": "2026-10-17T17:40:23Z"
+      "grafana.app/sourceTimestamp": "1792259709000",
+      "grafana.app/updatedBy": "user:eg1iu5b85ixogc",
+      "grafana.app/updatedTimestamp": "2026-10-20T12:48:59Z"
     }
   },
   "spec": {
@@ -643,7 +643,7 @@
         "type": "link",
         "icon": "external link",
         "tooltip": "",
-        "url": "http://127.0.0.1:8000/update",
+        "url": "../scraper/update",
         "tags": [],
         "asDropdown": false,
         "targetBlank": true,
