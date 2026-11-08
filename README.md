@@ -37,15 +37,53 @@ docker compose logs --follow --tail 100 api
 **Export `scan_data_history` as CSV**
 
 ```sh
-docker compose exec -T postgres psql -U scan_data -d scan_data \
-    -c "\copy scan_data_history TO STDOUT WITH (FORMAT csv, HEADER)" > scan_data_history.csv
+docker exec -i tau-brain-dashboard-postgres-1 psql -U scan_data -d scan_data -c "COPY (
+  SELECT *
+  FROM scan_data_history 
+) TO STDOUT WITH CSV HEADER" > scan_data_history.csv
+```
+
+- getting the diff between different directories (in this case getting all "GOOGLE_SHEETS" entries that are not in any other directory on the NASs)
+```sh
+docker exec -i tau-brain-dashboard-postgres-1 psql -U scan_data -d scan_data -c "COPY (
+  SELECT s.scan_time
+  FROM scan_data_history s
+  WHERE s.source = 'GOOGLE_SHEETS'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM scan_data_history o
+      WHERE o.scan_time = s.scan_time
+        AND o.source <> 'GOOGLE_SHEETS'
+    )
+) TO STDOUT WITH CSV HEADER" > google_sheets_only.csv
+```
+
+
+- getting all entries in the GOOGLE_SHEETS that are not in the different directories
+```sh
+for src in QSIPREP QSIRECON FREESURFER CAT TABULAR_CAT12 RAW_DATA TABULAR BIDS ORCHESTRATORE; do
+  docker exec -i tau-brain-dashboard-postgres-1 psql -U scan_data -d scan_data -c "COPY (
+    SELECT DISTINCT s.scan_time
+    FROM scan_data_history s
+    WHERE s.source = 'GOOGLE_SHEETS'
+      AND NOT EXISTS (
+        SELECT 1
+        FROM scan_data_history o
+        WHERE o.scan_time = s.scan_time
+          AND o.source = '$src'
+      )
+    ORDER BY s.scan_time
+  ) TO STDOUT WITH CSV HEADER" > "google_sheets_without_${src}.csv"
+done
 ```
 
 **Export `smb_scraping_jobs` as CSV**
 
 ```sh
-docker compose exec -T postgres psql -U scan_data -d scan_data \
-    -c "\copy smb_scraping_jobs TO STDOUT WITH (FORMAT csv, HEADER)" > smb_scraping_jobs.csv
+docker exec -i tau-brain-dashboard-postgres-1 psql -U scan_data -d scan_data -c "COPY (
+  SELECT *
+  FROM smb_scraping_jobs 
+) TO STDOUT WITH CSV HEADER" > smb_scraping_jobs.csv
 ```
 
 **Open a psql shell in the postgres container**

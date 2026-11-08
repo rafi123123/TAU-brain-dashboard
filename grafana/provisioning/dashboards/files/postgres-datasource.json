@@ -4,12 +4,12 @@
   "metadata": {
     "name": "adv6tgf",
     "namespace": "default",
-    "uid": "5e3dbd07-25c4-4566-9dea-7b3906d99251",
-    "resourceVersion": "1792500539051006",
-    "generation": 3,
-    "creationTimestamp": "2026-10-17T17:55:53Z",
+    "uid": "6d6b89fe-0eb9-4385-8b97-f341ca0fd662",
+    "resourceVersion": "1793710780613006",
+    "generation": 10,
+    "creationTimestamp": "2026-10-18T10:06:14Z",
     "labels": {
-      "grafana.app/deprecatedInternalID": "3831937983918080"
+      "grafana.app/deprecatedInternalID": "4076134819708928"
     },
     "annotations": {
       "grafana.app/createdBy": "access-policy:service",
@@ -17,11 +17,11 @@
       "grafana.app/managerAllowsEdits": "true",
       "grafana.app/managerId": "Default Dashboards",
       "grafana.app/saved-from-ui": "Grafana v13.2.1 (56cd3e9288)",
-      "grafana.app/sourceChecksum": "f2439c337bf9e0329d4172deb21d8d78",
+      "grafana.app/sourceChecksum": "df4f071a58017850cf129ed9815d9898",
       "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/files/postgres-datasource.json",
-      "grafana.app/sourceTimestamp": "1792259709000",
-      "grafana.app/updatedBy": "user:eg1iu5b85ixogc",
-      "grafana.app/updatedTimestamp": "2026-10-20T12:48:59Z"
+      "grafana.app/sourceTimestamp": "1792503076000",
+      "grafana.app/updatedBy": "user:eg1l8pd19a41sd",
+      "grafana.app/updatedTimestamp": "2026-11-03T12:59:40Z"
     }
   },
   "spec": {
@@ -398,7 +398,24 @@
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT\n    source AS metric,\n    COUNT(*) AS value\nFROM scan_data_history\nGROUP BY source;"
+                        "rawSql": "SELECT\n    source AS metric,\n    COUNT(*) AS value\nFROM scan_data_history\nGROUP BY source;",
+                        "sql": {
+                          "columns": [
+                            {
+                              "parameters": [],
+                              "type": "function"
+                            }
+                          ],
+                          "groupBy": [
+                            {
+                              "property": {
+                                "type": "string"
+                              },
+                              "type": "groupBy"
+                            }
+                          ],
+                          "limit": 50
+                        }
                       }
                     },
                     "refId": "A",
@@ -589,6 +606,227 @@
             }
           }
         }
+      },
+      "panel-4": {
+        "kind": "Panel",
+        "spec": {
+          "id": 4,
+          "title": "scan diffs",
+          "description": "",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "grafana-postgresql-datasource",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "missing-folders"
+                      },
+                      "spec": {
+                        "dataset": "scan_data",
+                        "editorMode": "code",
+                        "format": "table",
+                        "rawQuery": true,
+                        "rawSql": "SELECT\n  s.source::text AS source,\n  to_char(s.scan_time, 'YYYY-MM-DD HH24:MI:SS') AS scan_time,\n  to_char(s.creation_time, 'YYYY-MM-DD HH24:MI:SS') AS processed_time,\n  s.scanner_subject_id,\n  s.full_path\nFROM scan_data_history s\nWHERE s.source::text IN (${scans_from:singlequote})\n  AND NOT EXISTS (\n    SELECT 1 FROM scan_data_history g\n    WHERE g.scan_time = s.scan_time\n      AND g.source::text IN (${scans_exclude_source:singlequote})\n  )\nORDER BY s.source, s.scan_time",
+                        "sql": {
+                          "columns": [
+                            {
+                              "parameters": [],
+                              "type": "function"
+                            }
+                          ],
+                          "groupBy": [
+                            {
+                              "property": {
+                                "type": "string"
+                              },
+                              "type": "groupBy"
+                            }
+                          ],
+                          "limit": 50
+                        }
+                      }
+                    },
+                    "refId": "A",
+                    "hidden": false
+                  }
+                }
+              ],
+              "transformations": [],
+              "queryOptions": {}
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "table",
+            "version": "13.2.1",
+            "spec": {
+              "options": {
+                "cellHeight": "sm",
+                "showHeader": true,
+                "sortBy": [
+                  {
+                    "desc": false,
+                    "displayName": "full_path"
+                  }
+                ]
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "thresholds": {
+                    "mode": "absolute",
+                    "steps": [
+                      {
+                        "value": 0,
+                        "color": "green"
+                      },
+                      {
+                        "value": 80,
+                        "color": "red"
+                      }
+                    ]
+                  },
+                  "color": {
+                    "mode": "thresholds"
+                  },
+                  "custom": {
+                    "align": "auto",
+                    "cellOptions": {
+                      "type": "auto"
+                    },
+                    "footer": {
+                      "reducers": []
+                    },
+                    "inspect": false
+                  }
+                },
+                "overrides": []
+              }
+            }
+          }
+        }
+      },
+      "panel-5": {
+        "kind": "Panel",
+        "spec": {
+          "id": 5,
+          "title": "diffs between scans_from and specific sources",
+          "description": "",
+          "links": [],
+          "data": {
+            "kind": "QueryGroup",
+            "spec": {
+              "queries": [
+                {
+                  "kind": "PanelQuery",
+                  "spec": {
+                    "query": {
+                      "kind": "DataQuery",
+                      "group": "grafana-postgresql-datasource",
+                      "version": "v0",
+                      "datasource": {
+                        "name": "missing-folders"
+                      },
+                      "spec": {
+                        "editorMode": "code",
+                        "format": "table",
+                        "rawQuery": true,
+                        "rawSql": "SELECT\n    src.source::text AS metric,\n    (\n      SELECT COUNT(*)\n      FROM scan_data_history s\n      WHERE s.source::text IN (${scans_from:singlequote})\n        AND NOT EXISTS (\n          SELECT 1 FROM scan_data_history g\n          WHERE g.scan_time = s.scan_time\n            AND g.source = src.source\n        )\n    ) AS value\nFROM unnest(enum_range(NULL::source)) AS src(source)\nWHERE src.source::text NOT IN (${scans_from:singlequote})\nORDER BY src.source",
+                        "sql": {
+                          "columns": [
+                            {
+                              "parameters": [],
+                              "type": "function"
+                            }
+                          ],
+                          "groupBy": [
+                            {
+                              "property": {
+                                "type": "string"
+                              },
+                              "type": "groupBy"
+                            }
+                          ],
+                          "limit": 50
+                        }
+                      }
+                    },
+                    "refId": "A",
+                    "hidden": false
+                  }
+                }
+              ],
+              "transformations": [],
+              "queryOptions": {}
+            }
+          },
+          "vizConfig": {
+            "kind": "VizConfig",
+            "group": "gauge",
+            "version": "13.2.1",
+            "spec": {
+              "options": {
+                "barShape": "flat",
+                "barWidthFactor": 0.43,
+                "effects": {
+                  "barGlow": false,
+                  "centerGlow": false,
+                  "gradient": true
+                },
+                "endpointMarker": "point",
+                "minVizHeight": 75,
+                "minVizWidth": 75,
+                "orientation": "auto",
+                "reduceOptions": {
+                  "calcs": [
+                    "lastNotNull"
+                  ],
+                  "fields": "",
+                  "values": true
+                },
+                "segmentCount": 1,
+                "segmentSpacing": 0.3,
+                "shape": "gauge",
+                "showThresholdLabels": false,
+                "showThresholdMarkers": true,
+                "sizing": "auto",
+                "sparkline": true,
+                "textMode": "auto"
+              },
+              "fieldConfig": {
+                "defaults": {
+                  "thresholds": {
+                    "mode": "percentage",
+                    "steps": [
+                      {
+                        "value": 0,
+                        "color": "green"
+                      },
+                      {
+                        "value": 60,
+                        "color": "#EAB839"
+                      },
+                      {
+                        "value": 80,
+                        "color": "red"
+                      }
+                    ]
+                  },
+                  "color": {
+                    "mode": "thresholds"
+                  }
+                },
+                "overrides": []
+              }
+            }
+          }
+        }
       }
     },
     "layout": {
@@ -617,7 +855,7 @@
               "height": 14,
               "element": {
                 "kind": "ElementReference",
-                "name": "panel-1"
+                "name": "panel-5"
               }
             }
           },
@@ -626,6 +864,32 @@
             "spec": {
               "x": 0,
               "y": 28,
+              "width": 24,
+              "height": 12,
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-4"
+              }
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "x": 0,
+              "y": 40,
+              "width": 24,
+              "height": 14,
+              "element": {
+                "kind": "ElementReference",
+                "name": "panel-1"
+              }
+            }
+          },
+          {
+            "kind": "GridLayoutItem",
+            "spec": {
+              "x": 0,
+              "y": 54,
               "width": 24,
               "height": 14,
               "element": {
@@ -675,6 +939,127 @@
       "fiscalYearStartMonth": 0
     },
     "title": "missing folders",
-    "variables": []
+    "variables": [
+      {
+        "kind": "QueryVariable",
+        "spec": {
+          "name": "scans_from",
+          "current": {
+            "text": [
+              "FREESURFER"
+            ],
+            "value": [
+              "FREESURFER"
+            ]
+          },
+          "hide": "dontHide",
+          "refresh": "onDashboardLoad",
+          "skipUrlSync": false,
+          "description": "all the scans that are from this source. for example: if this is set \"GOOGLE_SHEETS\" than what will be shown in scan diffs is <all scans from the google sheets> - <all the entries from the scans_exclude_source variable>",
+          "query": {
+            "kind": "DataQuery",
+            "group": "grafana-postgresql-datasource",
+            "version": "v0",
+            "datasource": {
+              "name": "missing-folders"
+            },
+            "spec": {
+              "dataset": "scan_data",
+              "editorMode": "code",
+              "format": "table",
+              "query": "SELECT unnest(enum_range(NULL::source))::text",
+              "rawQuery": true,
+              "rawSql": "SELECT unnest(enum_range(NULL::source))::text",
+              "refId": "SQLVariableQueryEditor-VariableQuery",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          },
+          "regex": "",
+          "regexApplyTo": "value",
+          "sort": "disabled",
+          "definition": "SELECT unnest(enum_range(NULL::source))::text",
+          "options": [],
+          "multi": true,
+          "includeAll": true,
+          "allowCustomValue": true
+        }
+      },
+      {
+        "kind": "QueryVariable",
+        "spec": {
+          "name": "scans_exclude_source",
+          "current": {
+            "text": [
+              "GOOGLE_SHEETS"
+            ],
+            "value": [
+              "GOOGLE_SHEETS"
+            ]
+          },
+          "hide": "dontHide",
+          "refresh": "onDashboardLoad",
+          "skipUrlSync": false,
+          "description": "all the scans that are from this source ARE EXCLUDED from the final results. for example: if this is set \"BIDS\" than what will be shown in scan diffs ss <all scans from the \"scans_from\" variable> - <all the entries from the BIDS>",
+          "query": {
+            "kind": "DataQuery",
+            "group": "grafana-postgresql-datasource",
+            "version": "v0",
+            "datasource": {
+              "name": "missing-folders"
+            },
+            "spec": {
+              "dataset": "scan_data",
+              "editorMode": "code",
+              "format": "table",
+              "query": "SELECT unnest(enum_range(NULL::source))::text",
+              "rawQuery": true,
+              "rawSql": "SELECT unnest(enum_range(NULL::source))::text",
+              "refId": "SQLVariableQueryEditor-VariableQuery",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          },
+          "regex": "",
+          "regexApplyTo": "value",
+          "sort": "disabled",
+          "definition": "SELECT unnest(enum_range(NULL::source))::text",
+          "options": [],
+          "multi": true,
+          "includeAll": true,
+          "allowCustomValue": true
+        }
+      }
+    ]
   }
 }
