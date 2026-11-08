@@ -5,8 +5,8 @@
     "name": "adv6tgf",
     "namespace": "default",
     "uid": "6d6b89fe-0eb9-4385-8b97-f341ca0fd662",
-    "resourceVersion": "1793710780613006",
-    "generation": 10,
+    "resourceVersion": "1794149616021998",
+    "generation": 15,
     "creationTimestamp": "2026-10-18T10:06:14Z",
     "labels": {
       "grafana.app/deprecatedInternalID": "4076134819708928"
@@ -21,7 +21,7 @@
       "grafana.app/sourcePath": "/etc/grafana/provisioning/dashboards/files/postgres-datasource.json",
       "grafana.app/sourceTimestamp": "1792503076000",
       "grafana.app/updatedBy": "user:eg1l8pd19a41sd",
-      "grafana.app/updatedTimestamp": "2026-11-03T12:59:40Z"
+      "grafana.app/updatedTimestamp": "2026-11-08T14:53:36Z"
     }
   },
   "spec": {
@@ -493,7 +493,7 @@
         "kind": "Panel",
         "spec": {
           "id": 3,
-          "title": "Latest Scraping Jobs",
+          "title": "Latest Scraping Jobs (everything in israel local time)",
           "description": "",
           "links": [],
           "data": {
@@ -514,7 +514,24 @@
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT\n    source AS \"Source\",\n    to_char(start_time AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC' AS \"Start Time\",\n    to_char(stop_time AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC' AS \"Stop Time\",\n    status AS \"Status\",\n    error_msg AS \"Error Message\"\nFROM (\n    SELECT DISTINCT ON (source)\n        source,\n        start_time,\n        stop_time,\n        status,\n        error_msg\n    FROM smb_scraping_jobs\n    ORDER BY source, start_time DESC\n) t\nORDER BY source;"
+                        "rawSql": "SELECT\n  source AS \"Source\",\n  start_time AS \"Start Time\",\n  stop_time AS \"Stop Time\",\n  status AS \"Status\",\n  error_msg AS \"Error Message\"\nFROM\n  (\n    SELECT\n      DISTINCT ON (source) source,\n      start_time,\n      stop_time,\n      status,\n      error_msg\n    FROM\n      smb_scraping_jobs\n    ORDER BY\n      source,\n      start_time DESC\n  ) t\nORDER BY\n  source;",
+                        "sql": {
+                          "columns": [
+                            {
+                              "parameters": [],
+                              "type": "function"
+                            }
+                          ],
+                          "groupBy": [
+                            {
+                              "property": {
+                                "type": "string"
+                              },
+                              "type": "groupBy"
+                            }
+                          ],
+                          "limit": 50
+                        }
                       }
                     },
                     "refId": "A",
@@ -716,7 +733,7 @@
         "kind": "Panel",
         "spec": {
           "id": 5,
-          "title": "diffs between scans_from and specific sources",
+          "title": "The amount of brain scans that exist in the scans_from variable that DO NOT exist in the following directories",
           "description": "",
           "links": [],
           "data": {
@@ -737,7 +754,7 @@
                         "editorMode": "code",
                         "format": "table",
                         "rawQuery": true,
-                        "rawSql": "SELECT\n    src.source::text AS metric,\n    (\n      SELECT COUNT(*)\n      FROM scan_data_history s\n      WHERE s.source::text IN (${scans_from:singlequote})\n        AND NOT EXISTS (\n          SELECT 1 FROM scan_data_history g\n          WHERE g.scan_time = s.scan_time\n            AND g.source = src.source\n        )\n    ) AS value\nFROM unnest(enum_range(NULL::source)) AS src(source)\nWHERE src.source::text NOT IN (${scans_from:singlequote})\nORDER BY src.source",
+                        "rawSql": "-- SELECT\n--   src.source :: text AS metric,\n--   (\n--     SELECT\n--       COUNT(*)\n--     FROM\n--       scan_data_history s\n--     WHERE\n--       s.source :: text IN (${scans_from:singlequote})\n--       AND NOT EXISTS (\n--         SELECT\n--           1\n--         FROM\n--           scan_data_history g\n--         WHERE\n--           g.scan_time = s.scan_time\n--           AND g.source = src.source\n--       )\n--   ) AS value\n-- FROM\n--   unnest(enum_range(NULL :: source)) AS src(source)\n-- WHERE\n--   src.source :: text NOT IN (${scans_from:singlequote})\n--   AND src.source :: text <> 'ORCHESTRATORE'\n-- ORDER BY\n--   src.source\nSELECT\n  src.source :: text AS metric,\n  (\n    SELECT\n      COUNT(*)\n    FROM\n      scan_data_history s\n    WHERE\n      s.source :: text IN (${scans_from:singlequote})\n      AND src.source :: text NOT IN (${scans_from:singlequote})\n      AND NOT EXISTS (\n        SELECT\n          1\n        FROM\n          scan_data_history g\n        WHERE\n          g.scan_time = s.scan_time\n          AND g.source = src.source\n      )\n  ) AS value\nFROM\n  unnest(enum_range(NULL :: source)) AS src(source)\nWHERE\n  src.source :: text <> 'ORCHESTRATORE'\nORDER BY\n  src.source",
                         "sql": {
                           "columns": [
                             {
@@ -768,20 +785,21 @@
           },
           "vizConfig": {
             "kind": "VizConfig",
-            "group": "gauge",
+            "group": "bargauge",
             "version": "13.2.1",
             "spec": {
               "options": {
-                "barShape": "flat",
-                "barWidthFactor": 0.43,
-                "effects": {
-                  "barGlow": false,
-                  "centerGlow": false,
-                  "gradient": true
+                "displayMode": "basic",
+                "legend": {
+                  "calcs": [],
+                  "displayMode": "list",
+                  "placement": "bottom",
+                  "showLegend": false
                 },
-                "endpointMarker": "point",
-                "minVizHeight": 75,
-                "minVizWidth": 75,
+                "maxVizHeight": 300,
+                "minVizHeight": 16,
+                "minVizWidth": 8,
+                "namePlacement": "auto",
                 "orientation": "auto",
                 "reduceOptions": {
                   "calcs": [
@@ -790,14 +808,13 @@
                   "fields": "",
                   "values": true
                 },
-                "segmentCount": 1,
-                "segmentSpacing": 0.3,
-                "shape": "gauge",
-                "showThresholdLabels": false,
-                "showThresholdMarkers": true,
+                "showUnfilled": true,
                 "sizing": "auto",
-                "sparkline": true,
-                "textMode": "auto"
+                "text": {
+                  "titleSize": 20,
+                  "valueSize": 30
+                },
+                "valueMode": "color"
               },
               "fieldConfig": {
                 "defaults": {
@@ -819,8 +836,9 @@
                     ]
                   },
                   "color": {
-                    "mode": "thresholds"
-                  }
+                    "mode": "continuous-GrYlRd"
+                  },
+                  "fieldMinMax": false
                 },
                 "overrides": []
               }

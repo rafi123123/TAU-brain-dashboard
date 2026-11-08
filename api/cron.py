@@ -188,84 +188,112 @@ async def insert_sub_ses(
 
 
 
-async def list_google_sheets() -> list[InsertScanParams]:
-    logger.debug("getting excel folder names")
+async def list_google_sheets() -> tuple[list[InsertScanParams], list[Exception]]:
+    logger.debug("getting google sheets values")
     col_index = 0
     df = await asyncio.to_thread(pd.read_csv, SHEET_URL, usecols=[col_index], header=None, dtype=str)
     series = df.iloc[:, 0]
-    return [
-        InsertScanParams(
-            scan_time=_format_datetime_raw(scan_id),
-            source=sql.Source.GOOGLE_SHEETS,
-            status=sql.Status.UNKOWN,
-            full_path=None,
-            scanner_subject_id=None,
-            creation_time=_format_datetime_raw(scan_id)
-        ) 
-        for scan_id in series.dropna() if TIMESTAMP_RE.fullmatch(scan_id)
-    ]
+    return_list = []
+    exceptions = []
+    for scan_id in series.dropna():
+        try:
+            if TIMESTAMP_RE.fullmatch(scan_id):
+                return_list.append(
+                    InsertScanParams(
+                        scan_time=_format_datetime_raw(scan_id),
+                        source=sql.Source.GOOGLE_SHEETS,
+                        status=sql.Status.UNKOWN,
+                        full_path=None,
+                        scanner_subject_id=None,
+                        creation_time=_format_datetime_raw(scan_id)
+                    ) 
+                )
+        except Exception as e:
+            explainer = f"error parsing google sheets row value: '{scan_id}' ."
+            e.add_note(explainer)
+            logger.warning(
+                explainer + f"exception: {''.join(traceback.format_exception(e))}"
+            )
+            exceptions.append(e)
+    return return_list, exceptions
 
-async def insert_raw_data(modified_after: datetime | None) -> list[InsertScanParams]:
+async def get_raw_data(modified_after: datetime | None) -> tuple[list[InsertScanParams], list[Exception]]:
     logger.info(f"getting raw data after {modified_after}")
-    all_raw_scans = [
-        InsertScanParams(
-            scan_time=_format_datetime_raw(scan_dir.name),
-            source=sql.Source.RAW_DATA,
-            status=sql.Status.UNKOWN,
-            full_path=scan_dir.path,
-            scanner_subject_id=None,
-            creation_time=scan_dir._dir_info.creation_time
-        ) 
-        for scan_dir in await get_smb_dirs(NAS_PATH/"Raw_Data", modified_after) 
-        if TIMESTAMP_RE.fullmatch(scan_dir.name)
-    ]
-    logger.info(f"raw data entries: {len(all_raw_scans)}")
-    return all_raw_scans
+    all_raw_scans = []
+    exceptions = []
+    for scan_dir in await get_smb_dirs(NAS_PATH/"Raw_Data", modified_after):
+        if TIMESTAMP_RE.fullmatch(scan_dir.name):
+            try:
+                all_raw_scans.append(
+                    InsertScanParams(
+                        scan_time=_format_datetime_raw(scan_dir.name),
+                        source=sql.Source.RAW_DATA,
+                        status=sql.Status.UNKOWN,
+                        full_path=scan_dir.path,
+                        scanner_subject_id=None,
+                        creation_time=scan_dir._dir_info.creation_time
+                    ) 
+                )
+            except Exception as e:
+                note = f"error parsing '{scan_dir.path}' "
+                logger.warning(note)
+                e.add_note(note)
+                exceptions.append(e)
 
-async def list_freesurfer(modified_after: datetime | None) -> list[InsertScanParams]:
+    logger.info(f"raw data entries: {len(all_raw_scans)}")
+    return all_raw_scans, exceptions
+
+async def list_freesurfer(modified_after: datetime | None) -> tuple[list[InsertScanParams], list[Exception]]:
     logger.debug("getting freesurfer data")
     all_entries = []
+    exceptions = []
     for directory in await get_smb_dirs(NAS_PATH/"Processed_Data"/"derivatives"/"freesurfer", modified_after=modified_after):
         if directory.is_dir():
-            name = directory.name
-            sub_id = _first_group_or_none(SUB_ID_RE, name)
-            if not sub_id:
-                continue
-            ses_time_raw = _first_group_or_none(SES_TIMESTAMP_RE, name)
-            if not ses_time_raw:
-                logger.debug(f"skipping freesurfer dir without a session timestamp: {name}")
-                continue
-            if '.long.' in name:
-                continue
-            all_entries.append(
-                InsertScanParams(
-                    scan_time=_format_datetime_ses(ses_time_raw), 
-                    source=sql.Source.FREESURFER, 
-                    status=sql.Status.UNKOWN, 
-                    full_path=directory.path,
-                    scanner_subject_id=sub_id,
-                    creation_time=directory._dir_info.creation_time
+            try:
+                name = directory.name
+                sub_id = _first_group_or_none(SUB_ID_RE, name)
+                if not sub_id:
+                    continue
+                ses_time_raw = _first_group_or_none(SES_TIMESTAMP_RE, name)
+                if not ses_time_raw:
+                    logger.debug(f"skipping freesurfer dir without a session timestamp: {name}")
+                    continue
+                if '.long.' in name:
+                    continue
+                all_entries.append(
+                    InsertScanParams(
+                        scan_time=_format_datetime_ses(ses_time_raw), 
+                        source=sql.Source.FREESURFER, 
+                        status=sql.Status.UNKOWN, 
+                        full_path=directory.path,
+                        scanner_subject_id=sub_id,
+                        creation_time=directory._dir_info.creation_time
+                    )
                 )
-            )
-    return all_entries
-
-
-
+            except Exception as e:
+                note = f"error parsing '{directory.path}' "
+                logger.warning(note)
+                e.add_note(note)
+                exceptions.append(e)
+    return all_entries, exceptions
 
 async def _insert_scans_as_job(source: sql.Source, list_scans) -> None:
     "list the scans and insert them one by one, recording the outcome as a job entry"
     async with sql.connection() as conn:
         job_id = await AsyncQuerier(conn).insert_job_entry(source=source)
+        job_exceptions = []
         try:
             # savepoint so a failed insert doesn't abort the rest of the transaction
             async with conn.begin_nested():
                 querier = AsyncQuerier(conn)
-                for scan_data in await list_scans():
+                scan_data_list, exceptions = await list_scans()
+                print(f'~~~~~~~~~~~{list_scans} {len(exceptions)} {len(scan_data_list)}~~~~~~~~~~~')
+                job_exceptions += exceptions
+                for scan_data in scan_data_list:
                     await querier.insert_scan(scan_data)
-            await sql.update_job_based_on_exceptions(conn, job_id, [])
+            await sql.update_job_based_on_exceptions(conn, job_id, job_exceptions)
         except Exception as e:
             await sql.update_job_based_on_exceptions(conn, job_id, [e])
-
 
 async def _update_db(last_modified_dict: dict[str, datetime]) -> list[BaseException]:
     "function to run periodically to save details in postgres to be read by grafana"
@@ -306,7 +334,7 @@ async def _update_db(last_modified_dict: dict[str, datetime]) -> list[BaseExcept
         ),
         _insert_scans_as_job(
             sql.Source.RAW_DATA,
-            lambda: insert_raw_data(last_modified_dict[sql.Source.RAW_DATA.value])
+            lambda: get_raw_data(last_modified_dict[sql.Source.RAW_DATA.value])
         ),
         _insert_scans_as_job(sql.Source.GOOGLE_SHEETS, list_google_sheets),
         _insert_scans_as_job(

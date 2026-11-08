@@ -14,6 +14,7 @@ load_dotenv()
 TIME_BUFFER_BETWEEN_SCANS_MINUTES = int(os.getenv("TIME_BUFFER_BETWEEN_SCANS_MINUTES", 15))
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/scan_data")
 DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", 25))
+MAX_EXCEPTIONS_IN_DB = int(os.getenv("MAX_EXCEPTIONS_IN_DB", 10))
 
 
 async def update_job_based_on_exceptions(conn: AsyncConnection, job_id: int, all_exc: list[Exception | None]) -> None:
@@ -28,7 +29,7 @@ async def update_job_based_on_exceptions(conn: AsyncConnection, job_id: int, all
     else:
         await querier.update_job_entry(
             status=JobStatus.ERROR,
-            error_msg=str(["".join(traceback.format_exception(e)) for e in all_exc]),
+            error_msg=str(["".join(traceback.format_exception(e)) for e in all_exc[:MAX_EXCEPTIONS_IN_DB]]),
             stop_time=datetime.now(tz=timezone.utc),
             id=job_id,
         )

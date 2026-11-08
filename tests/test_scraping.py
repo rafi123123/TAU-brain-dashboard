@@ -457,18 +457,20 @@ async def test_get_smb_dirs_retries_smb_errors(nas, monkeypatch):
 
 async def test_insert_raw_data_keeps_only_scan_folders(nas):
     build_standard_nas(nas)
-    scans = await cron.insert_raw_data(None)
-
-    assert [s.scan_time for s in scans] == [datetime(2026, 1, 5, 9, 30), datetime(2026, 1, 6, 10, 15)]
-    assert {s.source for s in scans} == {sql.Source.RAW_DATA}
-    assert scans[0].full_path == f"{RAW_DATA_PATH}/20260105_0930"
+    nas.add(RAW_DATA_PATH, "20261103_1372")
+    scans = await cron.get_raw_data(None)
+    assert [s.scan_time for s in scans[0]] == [datetime(2026, 1, 5, 9, 30), datetime(2026, 1, 6, 10, 15)]
+    assert len(scans[1]) == 1
+    assert isinstance(scans[1][0],ValueError)
+    assert {s.source for s in scans[0]} == {sql.Source.RAW_DATA}
+    assert scans[0][0].full_path == f"{RAW_DATA_PATH}/20260105_0930"
 
 
 async def test_list_google_sheets_keeps_only_scan_ids(sheet):
     scans = await cron.list_google_sheets()
 
-    assert [s.scan_time for s in scans] == [datetime(2026, 1, 10, 10, 0), datetime(2026, 1, 11, 11, 0)]
-    assert {s.source for s in scans} == {sql.Source.GOOGLE_SHEETS}
+    assert [s.scan_time for s in scans[0]] == [datetime(2026, 1, 10, 10, 0), datetime(2026, 1, 11, 11, 0)]
+    assert {s.source for s in scans[0]} == {sql.Source.GOOGLE_SHEETS}
 
 # --------------------------------------------------------------------------- sql layer
 
