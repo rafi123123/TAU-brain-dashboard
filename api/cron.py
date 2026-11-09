@@ -287,7 +287,6 @@ async def _insert_scans_as_job(source: sql.Source, list_scans) -> None:
             async with conn.begin_nested():
                 querier = AsyncQuerier(conn)
                 scan_data_list, exceptions = await list_scans()
-                print(f'~~~~~~~~~~~{list_scans} {len(exceptions)} {len(scan_data_list)}~~~~~~~~~~~')
                 job_exceptions += exceptions
                 for scan_data in scan_data_list:
                     await querier.insert_scan(scan_data)
